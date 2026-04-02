@@ -1,0 +1,396 @@
+// NYAMA API - Prisma Schema
+// Marketplace de cuisine camerounaise — Douala & Yaoundé
+// Phase 2 : Modèle de données complet (SQLite pour dev local)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  CLIENT
+  COOK
+  RIDER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  PICKED_UP
+  DELIVERING
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  ORANGE_MONEY
+  MTN_MOMO
+  CASH
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum DeliveryStatus {
+  ASSIGNED
+  ARRIVED_RESTAURANT
+  PICKED_UP
+  ARRIVED_CLIENT
+  DELIVERED
+}
+
+enum VehicleType {
+  MOTO
+  VELO
+  VOITURE
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  TRIAL
+  CANCELLED
+}
+
+// ============================================================
+// MODÈLES
+// ============================================================
+
+// 1. User — compte commun à tous les rôles
+model User {
+  id          String   @id @default(uuid())
+  phone       String   @unique
+  name        String?
+  role        UserRole @default(CLIENT)
+  quarterId   String?
+  quarter     Quarter? @relation(fields: [quarterId], references: [id])
+  locationLat Float?
+  locationLng Float?
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders          Order[]        @relation("ClientOrders")
+  cookOrders      Order[]        @relation("CookOrders")
+  riderOrders     Order[]        @relation("RiderOrders")
+  cookProfile     CookProfile?
+  riderProfile    RiderProfile?
+  reviews         Review[]
+  sentMessages    ChatMessage[]
+  notifications   Notification[]
+  refreshTokens   RefreshToken[]
+}
+
+// 2. Quarter — quartier de Douala ou Yaoundé
+model Quarter {
+  id       String  @id @default(uuid())
+  name     String
+  city     String  // Douala | Yaoundé
+  polygon  String  // GeoJSON sérialisé (SQLite ne supporte pas Json natif)
+  isActive Boolean @default(true)
+
+  users        User[]
+  cookProfiles CookProfile[]
+
+  @@index([city])
+}
+
+// 3. CookProfile — profil cuisinière
+model CookProfile {
+  id                 String             @id @default(uuid())
+  userId             String             @unique
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName        String
+  specialty          String             // JSON array sérialisé ex: '["Ndolé","Eru"]'
+  description        String?
+  avatarUrl          String?
+  avgRating          Float              @default(0)
+  totalOrders        Int                @default(0)
+  isVerified         Boolean            @default(false)
+  isActive           Boolean            @default(true)
+  prepTimeAvgMin     Int?
+  openingHours       String?            // JSON sérialisé { mon:{open,close}, ... }
+  momoPhone          String?
+  momoProvider       String?            // orange | mtn
+  quarterId          String
+  quarter            Quarter            @relation(fields: [quarterId], references: [id])
+  locationLat        Float
+  locationLng        Float
+  landmark           String?
+  languagePref       String             @default("fr")
+  subscriptionPlan   SubscriptionPlan   @default(FREE)
+  subscriptionStatus SubscriptionStatus @default(TRIAL)
+  subscriptionEndsAt DateTime?
+  createdAt          DateTime           @default(now())
+
+  menuItems   MenuItem[]
+  cookPayouts CookPayout[]
+
+  @@index([quarterId, isActive])
+  @@index([avgRating])
+}
+
+// 4. MenuItem — plat proposé par une cuisinière
+model MenuItem {
+  id             String      @id @default(uuid())
+  cookId         String
+  cook           CookProfile @relation(fields: [cookId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  priceXaf       Int
+  category       String
+  imageUrl       String?
+  isAvailable    Boolean     @default(true)
+  isDailySpecial Boolean     @default(false)
+  prepTimeMin    Int?
+  stockRemaining Int?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  orderItems OrderItem[]
+
+  @@index([cookId, isAvailable])
+  @@index([category])
+}
+
+// 5. Order — commande
+model Order {
+  id              String        @id @default(uuid())
+  clientId        String
+  client          User          @relation("ClientOrders", fields: [clientId], references: [id])
+  cookId          String
+  cook            User          @relation("CookOrders", fields: [cookId], references: [id])
+  riderId         String?
+  rider           User?         @relation("RiderOrders", fields: [riderId], references: [id])
+  status          OrderStatus   @default(PENDING)
+  totalXaf        Int
+  deliveryFeeXaf  Int
+  paymentMethod   PaymentMethod
+  paymentStatus   PaymentStatus @default(PENDING)
+  deliveryAddress String
+  deliveryLat     Float
+  deliveryLng     Float
+  landmark        String?
+  clientNote      String?
+  cancelReason    String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  items        OrderItem[]
+  payment      Payment?
+  delivery     Delivery?
+  reviews      Review[]
+  chatMessages ChatMessage[]
+
+  @@index([status])
+  @@index([cookId])
+  @@index([clientId])
+  @@index([riderId])
+  @@index([createdAt])
+}
+
+// 6. OrderItem — ligne de commande
+model OrderItem {
+  id           String   @id @default(uuid())
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId   String
+  menuItem     MenuItem @relation(fields: [menuItemId], references: [id])
+  quantity     Int
+  unitPriceXaf Int
+  subtotalXaf  Int
+
+  @@index([orderId])
+}
+
+// 7. Payment — transaction
+model Payment {
+  id              String        @id @default(uuid())
+  orderId         String        @unique
+  order           Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  amountXaf       Int
+  currency        String        @default("XAF")
+  providerRef     String?
+  providerPayload String?       // JSON sérialisé
+  paidAt          DateTime?
+  failureReason   String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([status])
+  @@index([providerRef])
+}
+
+// 8. Delivery — livraison
+model Delivery {
+  id               String         @id @default(uuid())
+  orderId          String         @unique
+  order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  riderId          String
+  rider            RiderProfile   @relation(fields: [riderId], references: [id])
+  status           DeliveryStatus @default(ASSIGNED)
+  pickupLat        Float?
+  pickupLng        Float?
+  dropoffLat       Float
+  dropoffLng       Float
+  distanceKm       Float?
+  estimatedMinutes Int?
+  assignedAt       DateTime       @default(now())
+  pickedUpAt       DateTime?
+  deliveredAt      DateTime?
+  riderEarningXaf  Int?
+
+  riderEarning RiderEarning?
+
+  @@index([riderId, status])
+}
+
+// 9. RiderProfile — benskineur
+model RiderProfile {
+  id           String      @id @default(uuid())
+  userId       String      @unique
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicleType  VehicleType @default(MOTO)
+  plateNumber  String?
+  isVerified   Boolean     @default(false)
+  isOnline     Boolean     @default(false)
+  avgRating    Float       @default(0)
+  totalTrips   Int         @default(0)
+  momoPhone    String?
+  momoProvider String?
+  createdAt    DateTime    @default(now())
+
+  deliveries    Delivery[]
+  riderEarnings RiderEarning[]
+
+  @@index([isOnline])
+}
+
+// 10. Review — avis client
+model Review {
+  id           String   @id @default(uuid())
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User     @relation(fields: [authorId], references: [id])
+  cookRating   Int?
+  riderRating  Int?
+  cookComment  String?
+  riderComment String?
+  createdAt    DateTime @default(now())
+
+  @@unique([orderId, authorId])
+  @@index([orderId])
+}
+
+// 11. ChatMessage — messagerie par commande
+model ChatMessage {
+  id        String    @id @default(uuid())
+  orderId   String
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User      @relation(fields: [senderId], references: [id])
+  content   String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+// 12. Notification
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  data      String?   // JSON sérialisé
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+// 13. CookPayout — virement cuisinière
+model CookPayout {
+  id          String      @id @default(uuid())
+  cookId      String
+  cook        CookProfile @relation(fields: [cookId], references: [id])
+  amountXaf   Int
+  periodStart DateTime
+  periodEnd   DateTime
+  status      String      @default("PENDING")
+  momoRef     String?
+  processedAt DateTime?
+  createdAt   DateTime    @default(now())
+
+  @@index([cookId, status])
+}
+
+// 14. RiderEarning — gain rider par livraison
+model RiderEarning {
+  id            String       @id @default(uuid())
+  riderId       String
+  rider         RiderProfile @relation(fields: [riderId], references: [id])
+  deliveryId    String       @unique
+  delivery      Delivery     @relation(fields: [deliveryId], references: [id])
+  grossXaf      Int
+  commissionXaf Int
+  netXaf        Int
+  paidAt        DateTime?
+  createdAt     DateTime     @default(now())
+
+  @@index([riderId])
+}
+
+// 15. OtpCode — codes OTP SMS
+model OtpCode {
+  id        String    @id @default(uuid())
+  phone     String
+  code      String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([phone])
+  @@index([expiresAt])
+}
+
+// 16. RefreshToken — tokens révocables
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  deviceInfo String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}

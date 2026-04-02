@@ -1,0 +1,29 @@
+node_modules
+dist
+
+# SQLite dev databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# JWT keys (NEVER commit private keys)
+keys/
+
+# Prisma generated
+/generated/prisma
+
+# Uploads
+uploads/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
