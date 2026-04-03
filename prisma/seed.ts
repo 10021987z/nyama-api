@@ -632,6 +632,28 @@ async function main() {
   console.log('   ✅ 2 clients créés (Fabrice Bonabéri, Aminata Bastos)\n');
 
   // ============================================================
+  // ADMIN
+  // ============================================================
+
+  console.log('🔑 Création du compte admin...');
+
+  const userAdmin = await prisma.user.upsert({
+    where: { id: 'u-admin' },
+    update: {},
+    create: {
+      id: 'u-admin',
+      phone: '+237699000000',
+      name: 'Admin NYAMA',
+      role: UserRole.ADMIN,
+      quarterId: 'q-akwa',
+      locationLat: 4.0511,
+      locationLng: 9.7085,
+    },
+  });
+
+  console.log('   ✅ 1 admin créé (Admin NYAMA)\n');
+
+  // ============================================================
   // LIVREURS TEST
   // ============================================================
 
@@ -716,6 +738,7 @@ async function main() {
     aminata.phone,
     userKevin.phone,
     userPaul.phone,
+    userAdmin.phone,
   ];
 
   for (const phone of allTestPhones) {
@@ -1065,6 +1088,217 @@ async function main() {
   console.log('   ✅ 5 commandes créées (DELIVERED, PREPARING, PENDING, CANCELLED, PICKED_UP)\n');
 
   // ============================================================
+  // COMMANDES SUPPLÉMENTAIRES DELIVERED (7 derniers jours)
+  // ============================================================
+
+  console.log('📦 Création des commandes DELIVERED supplémentaires...');
+
+  const now = new Date();
+
+  // Commande 6 — DELIVERED il y a 1 jour (Aminata → Tantine Rose)
+  const d1 = new Date(now); d1.setDate(d1.getDate() - 1); d1.setHours(12, 0, 0, 0);
+  const order6 = await prisma.order.upsert({
+    where: { id: 'ord-006' },
+    update: {},
+    create: {
+      id: 'ord-006',
+      clientId: aminata.id,
+      cookId: userRose.id,
+      riderId: userKevin.id,
+      status: OrderStatus.DELIVERED,
+      totalXaf: 4500,
+      deliveryFeeXaf: 800,
+      paymentMethod: PaymentMethod.ORANGE_MONEY,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryAddress: 'Bastos, Yaoundé',
+      deliveryLat: 3.8754,
+      deliveryLng: 11.5197,
+      clientNote: 'Extra piment',
+      createdAt: d1,
+    },
+  });
+  await Promise.all([
+    prisma.orderItem.upsert({
+      where: { id: 'oi-006-a' },
+      update: {},
+      create: { id: 'oi-006-a', orderId: order6.id, menuItemId: 'mi-poulet-dg', quantity: 1, unitPriceXaf: 4500, subtotalXaf: 4500 },
+    }),
+    prisma.payment.upsert({
+      where: { id: 'pay-006' },
+      update: {},
+      create: { id: 'pay-006', orderId: order6.id, method: PaymentMethod.ORANGE_MONEY, status: PaymentStatus.SUCCESS, amountXaf: 4500, providerRef: 'NP-TEST-006', paidAt: d1 },
+    }),
+    prisma.delivery.upsert({
+      where: { id: 'del-006' },
+      update: {},
+      create: { id: 'del-006', orderId: order6.id, riderId: riderKevin.id, status: DeliveryStatus.DELIVERED, pickupLat: 4.0441, pickupLng: 9.7085, dropoffLat: 3.8754, dropoffLng: 11.5197, distanceKm: 3.5, estimatedMinutes: 18, assignedAt: d1, pickedUpAt: new Date(d1.getTime() + 20 * 60000), deliveredAt: new Date(d1.getTime() + 45 * 60000), riderEarningXaf: 640 },
+    }),
+  ]);
+
+  // Commande 7 — DELIVERED il y a 2 jours (Fabrice → Maman Catherine)
+  const d2 = new Date(now); d2.setDate(d2.getDate() - 2); d2.setHours(14, 30, 0, 0);
+  const order7 = await prisma.order.upsert({
+    where: { id: 'ord-007' },
+    update: {},
+    create: {
+      id: 'ord-007',
+      clientId: fabrice.id,
+      cookId: userCatherine.id,
+      riderId: userKevin.id,
+      status: OrderStatus.DELIVERED,
+      totalXaf: 5000,
+      deliveryFeeXaf: 800,
+      paymentMethod: PaymentMethod.MTN_MOMO,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryAddress: 'Bonabéri, Douala',
+      deliveryLat: 4.0679,
+      deliveryLng: 9.6668,
+      createdAt: d2,
+    },
+  });
+  await Promise.all([
+    prisma.orderItem.upsert({
+      where: { id: 'oi-007-a' },
+      update: {},
+      create: { id: 'oi-007-a', orderId: order7.id, menuItemId: 'mi-ndole-complet', quantity: 2, unitPriceXaf: 2500, subtotalXaf: 5000 },
+    }),
+    prisma.payment.upsert({
+      where: { id: 'pay-007' },
+      update: {},
+      create: { id: 'pay-007', orderId: order7.id, method: PaymentMethod.MTN_MOMO, status: PaymentStatus.SUCCESS, amountXaf: 5000, providerRef: 'NP-TEST-007', paidAt: d2 },
+    }),
+    prisma.delivery.upsert({
+      where: { id: 'del-007' },
+      update: {},
+      create: { id: 'del-007', orderId: order7.id, riderId: riderKevin.id, status: DeliveryStatus.DELIVERED, pickupLat: 4.0511, pickupLng: 9.7085, dropoffLat: 4.0679, dropoffLng: 9.6668, distanceKm: 4.0, estimatedMinutes: 20, assignedAt: d2, pickedUpAt: new Date(d2.getTime() + 15 * 60000), deliveredAt: new Date(d2.getTime() + 40 * 60000), riderEarningXaf: 640 },
+    }),
+  ]);
+
+  // Commande 8 — DELIVERED il y a 3 jours (Fabrice → Circuit d'Akwa)
+  const d3 = new Date(now); d3.setDate(d3.getDate() - 3); d3.setHours(19, 0, 0, 0);
+  const order8 = await prisma.order.upsert({
+    where: { id: 'ord-008' },
+    update: {},
+    create: {
+      id: 'ord-008',
+      clientId: fabrice.id,
+      cookId: userCircuit.id,
+      riderId: userKevin.id,
+      status: OrderStatus.DELIVERED,
+      totalXaf: 3500,
+      deliveryFeeXaf: 700,
+      paymentMethod: PaymentMethod.CASH,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryAddress: 'Bonabéri, Douala',
+      deliveryLat: 4.0670,
+      deliveryLng: 9.6655,
+      createdAt: d3,
+    },
+  });
+  await Promise.all([
+    prisma.orderItem.upsert({
+      where: { id: 'oi-008-a' },
+      update: {},
+      create: { id: 'oi-008-a', orderId: order8.id, menuItemId: 'mi-brochettes-poulet', quantity: 1, unitPriceXaf: 2000, subtotalXaf: 2000 },
+    }),
+    prisma.orderItem.upsert({
+      where: { id: 'oi-008-b' },
+      update: {},
+      create: { id: 'oi-008-b', orderId: order8.id, menuItemId: 'mi-soya-boeuf', quantity: 1, unitPriceXaf: 1500, subtotalXaf: 1500 },
+    }),
+    prisma.payment.upsert({
+      where: { id: 'pay-008' },
+      update: {},
+      create: { id: 'pay-008', orderId: order8.id, method: PaymentMethod.CASH, status: PaymentStatus.SUCCESS, amountXaf: 3500 },
+    }),
+    prisma.delivery.upsert({
+      where: { id: 'del-008' },
+      update: {},
+      create: { id: 'del-008', orderId: order8.id, riderId: riderKevin.id, status: DeliveryStatus.DELIVERED, pickupLat: 4.0605, pickupLng: 9.7254, dropoffLat: 4.0670, dropoffLng: 9.6655, distanceKm: 5.0, estimatedMinutes: 22, assignedAt: d3, pickedUpAt: new Date(d3.getTime() + 18 * 60000), deliveredAt: new Date(d3.getTime() + 42 * 60000), riderEarningXaf: 560 },
+    }),
+  ]);
+
+  // Commande 9 — DELIVERED il y a 5 jours (Aminata → Maman Catherine)
+  const d5 = new Date(now); d5.setDate(d5.getDate() - 5); d5.setHours(11, 0, 0, 0);
+  const order9 = await prisma.order.upsert({
+    where: { id: 'ord-009' },
+    update: {},
+    create: {
+      id: 'ord-009',
+      clientId: aminata.id,
+      cookId: userCatherine.id,
+      riderId: userKevin.id,
+      status: OrderStatus.DELIVERED,
+      totalXaf: 2200,
+      deliveryFeeXaf: 800,
+      paymentMethod: PaymentMethod.MTN_MOMO,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryAddress: 'Bastos, Yaoundé',
+      deliveryLat: 3.8754,
+      deliveryLng: 11.5197,
+      createdAt: d5,
+    },
+  });
+  await Promise.all([
+    prisma.orderItem.upsert({
+      where: { id: 'oi-009-a' },
+      update: {},
+      create: { id: 'oi-009-a', orderId: order9.id, menuItemId: 'mi-okok', quantity: 1, unitPriceXaf: 2200, subtotalXaf: 2200 },
+    }),
+    prisma.payment.upsert({
+      where: { id: 'pay-009' },
+      update: {},
+      create: { id: 'pay-009', orderId: order9.id, method: PaymentMethod.MTN_MOMO, status: PaymentStatus.SUCCESS, amountXaf: 2200, providerRef: 'NP-TEST-009', paidAt: d5 },
+    }),
+    prisma.delivery.upsert({
+      where: { id: 'del-009' },
+      update: {},
+      create: { id: 'del-009', orderId: order9.id, riderId: riderKevin.id, status: DeliveryStatus.DELIVERED, pickupLat: 4.0511, pickupLng: 9.7085, dropoffLat: 3.8754, dropoffLng: 11.5197, distanceKm: 3.8, estimatedMinutes: 16, assignedAt: d5, pickedUpAt: new Date(d5.getTime() + 12 * 60000), deliveredAt: new Date(d5.getTime() + 35 * 60000), riderEarningXaf: 640 },
+    }),
+  ]);
+
+  // Commande 10 — DELIVERED il y a 6 jours (Fabrice → Tantine Rose)
+  const d6 = new Date(now); d6.setDate(d6.getDate() - 6); d6.setHours(20, 0, 0, 0);
+  const order10 = await prisma.order.upsert({
+    where: { id: 'ord-010' },
+    update: {},
+    create: {
+      id: 'ord-010',
+      clientId: fabrice.id,
+      cookId: userRose.id,
+      riderId: userKevin.id,
+      status: OrderStatus.DELIVERED,
+      totalXaf: 3500,
+      deliveryFeeXaf: 800,
+      paymentMethod: PaymentMethod.ORANGE_MONEY,
+      paymentStatus: PaymentStatus.SUCCESS,
+      deliveryAddress: 'Bonabéri, Douala',
+      deliveryLat: 4.0679,
+      deliveryLng: 9.6668,
+      createdAt: d6,
+    },
+  });
+  await Promise.all([
+    prisma.orderItem.upsert({
+      where: { id: 'oi-010-a' },
+      update: {},
+      create: { id: 'oi-010-a', orderId: order10.id, menuItemId: 'mi-poisson-braise', quantity: 1, unitPriceXaf: 3500, subtotalXaf: 3500 },
+    }),
+    prisma.payment.upsert({
+      where: { id: 'pay-010' },
+      update: {},
+      create: { id: 'pay-010', orderId: order10.id, method: PaymentMethod.ORANGE_MONEY, status: PaymentStatus.SUCCESS, amountXaf: 3500, providerRef: 'NP-TEST-010', paidAt: d6 },
+    }),
+    prisma.delivery.upsert({
+      where: { id: 'del-010' },
+      update: {},
+      create: { id: 'del-010', orderId: order10.id, riderId: riderKevin.id, status: DeliveryStatus.DELIVERED, pickupLat: 4.0441, pickupLng: 9.7085, dropoffLat: 4.0679, dropoffLng: 9.6668, distanceKm: 3.2, estimatedMinutes: 15, assignedAt: d6, pickedUpAt: new Date(d6.getTime() + 10 * 60000), deliveredAt: new Date(d6.getTime() + 30 * 60000), riderEarningXaf: 640 },
+    }),
+  ]);
+
+  console.log('   ✅ 5 commandes DELIVERED supplémentaires créées (7 derniers jours)\n');
+
+  // ============================================================
   // NOTIFICATIONS
   // ============================================================
 
@@ -1119,7 +1353,33 @@ async function main() {
     }),
   ]);
 
-  console.log('   ✅ 4 notifications créées\n');
+  await Promise.all([
+    prisma.notification.create({
+      data: {
+        userId: aminata.id,
+        type: 'ORDER_DELIVERED',
+        title: 'Commande livrée !',
+        body: 'Votre Poulet DG de Tantine Rose est arrivé. Bon appétit !',
+        data: JSON.stringify({ orderId: order6.id }),
+        isRead: true,
+        readAt: new Date(d1.getTime() + 50 * 60000),
+        createdAt: new Date(d1.getTime() + 45 * 60000),
+      },
+    }),
+    prisma.notification.create({
+      data: {
+        userId: fabrice.id,
+        type: 'ORDER_DELIVERED',
+        title: 'Commande livrée !',
+        body: 'Votre commande du Circuit d\'Akwa est arrivée. Régalez-vous !',
+        data: JSON.stringify({ orderId: order8.id }),
+        isRead: false,
+        createdAt: new Date(d3.getTime() + 42 * 60000),
+      },
+    }),
+  ]);
+
+  console.log('   ✅ 6 notifications créées\n');
 
   // ============================================================
   // RÉSUMÉ
@@ -1134,10 +1394,13 @@ async function main() {
   console.log('   • 17 plats au menu');
   console.log('   • 2  clients    (Fabrice, Aminata)');
   console.log('   • 2  livreurs   (Kevin moto, Paul vélo)');
-  console.log('   • 5  commandes  (statuts variés)');
+  console.log('   • 1  admin      (Admin NYAMA)');
+  console.log('   • 10 commandes  (6 DELIVERED + statuts variés)');
+  console.log('   • 6  notifications');
   console.log('   • OTP dev universelle : 123456');
   console.log('');
   console.log('📱 Numéros de test :');
+  console.log('   +237699000000  Admin NYAMA     (ADMIN)');
   console.log('   +237690000001  Maman Catherine (COOK)');
   console.log('   +237690000002  Tantine Rose    (COOK)');
   console.log('   +237690000003  Circuit d\'Akwa  (COOK)');

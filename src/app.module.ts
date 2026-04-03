@@ -15,6 +15,8 @@ import { RidersModule } from './riders/riders.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { MarketingModule } from './marketing/marketing.module';
+import { SupportModule } from './support/support.module';
 import { EventsModule } from './events/events.module';
 
 @Module({
@@ -34,6 +36,8 @@ import { EventsModule } from './events/events.module';
     ReviewsModule,
     NotificationsModule,
     AnalyticsModule,
+    MarketingModule,
+    SupportModule,
   ],
   controllers: [AppController],
   providers: [AppService],
