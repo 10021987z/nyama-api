@@ -20,14 +20,15 @@ async function bootstrap() {
     }),
   );
 
-  // CORS
+  // CORS dynamique depuis CORS_ORIGINS ou ALLOWED_ORIGINS
+  const corsOrigins = process.env.CORS_ORIGINS ?? process.env.ALLOWED_ORIGINS;
   app.enableCors({
-    origin: process.env.ALLOWED_ORIGINS?.split(',') ?? '*',
+    origin: corsOrigins ? corsOrigins.split(',').map((o) => o.trim()) : '*',
     credentials: true,
   });
 
-  const port = process.env.PORT ?? 3000;
-  await app.listen(port);
-  console.log(`NYAMA API running on http://localhost:${port}/api/v1`);
+  const port = parseInt(process.env.PORT ?? '3000', 10);
+  await app.listen(port, '0.0.0.0');
+  console.log(`NYAMA API running on port ${port} — /api/v1`);
 }
 bootstrap();

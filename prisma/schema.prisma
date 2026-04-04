@@ -1,13 +1,13 @@
 // NYAMA API - Prisma Schema
 // Marketplace de cuisine camerounaise — Douala & Yaoundé
-// Phase 2 : Modèle de données complet (SQLite pour dev local)
+// Phase 2 : Modèle de données complet
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 // ============================================================

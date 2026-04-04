@@ -15,6 +15,7 @@ Backend API de la marketplace de cuisine camerounaise — Douala & Yaoundé.
 | Auth | JWT RS256 (OTP SMS uniquement) |
 | Paiements | NotchPay / CamPay (Orange Money + MTN MoMo) |
 | Monnaie | FCFA (XAF) |
+| Déploiement | Railway |
 
 ## Prérequis
 
@@ -23,11 +24,11 @@ Backend API de la marketplace de cuisine camerounaise — Douala & Yaoundé.
 - Redis >= 7
 - npm >= 10
 
-## Installation
+## Installation locale
 
 ```bash
 # 1. Cloner le dépôt
-git clone <repo-url>
+git clone https://github.com/10021987z/nyama-api.git
 cd nyama-api
 
 # 2. Installer les dépendances
@@ -45,13 +46,11 @@ openssl rsa -in keys/private.pem -pubout -out keys/public.pem
 # 5. Activer PostGIS sur la base de données
 psql -U postgres -d nyama_db -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
-# 6. Générer le client Prisma
+# 6. Générer le client Prisma et appliquer les migrations
 npx prisma generate
-
-# 7. Appliquer les migrations
 npx prisma migrate dev --name init
 
-# 8. (Optionnel) Seed de données de test
+# 7. (Optionnel) Seed de données de test
 npm run seed
 ```
 
@@ -67,6 +66,49 @@ npm run start:prod
 ```
 
 L'API est disponible sur `http://localhost:3000/api/v1`
+
+## Déploiement sur Railway
+
+### 1. Créer le projet
+
+1. Connecter le repo GitHub sur [railway.app](https://railway.app)
+2. Ajouter un service **PostgreSQL** depuis le marketplace Railway
+3. Ajouter un service **Redis** depuis le marketplace Railway
+
+### 2. Variables d'environnement
+
+Configurer les variables suivantes dans les settings Railway (voir `.env.production.example`) :
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | Auto-injectée par Railway PostgreSQL |
+| `REDIS_URL` | Auto-injectée par Railway Redis |
+| `JWT_SECRET` | Secret JWT (min 32 caractères) |
+| `JWT_REFRESH_SECRET` | Secret refresh token (min 32 caractères) |
+| `OTP_SECRET` | Secret OTP |
+| `CORS_ORIGINS` | Origines autorisées (séparées par virgule) |
+| `NODE_ENV` | `production` |
+| `PORT` | `3000` (par défaut) |
+
+### 3. Build et déploiement
+
+Railway détecte automatiquement le `railway.toml` et exécute :
+
+```
+npm ci → npm run build (prisma generate + nest build) → prisma migrate deploy
+```
+
+Le service démarre avec `node dist/main.js` sur le port 3000.
+
+### 4. Vérification
+
+```bash
+# Healthcheck
+curl https://your-app.railway.app/api/v1
+
+# Logs
+railway logs
+```
 
 ## Structure des modules
 
@@ -112,7 +154,8 @@ PENDING → CONFIRMED → PREPARING → READY → PICKED_UP → DELIVERED
 
 ## Variables d'environnement
 
-Voir [.env.example](.env.example) pour la liste complète et documentée.
+- Développement : voir [.env.example](.env.example)
+- Production : voir [.env.production.example](.env.production.example)
 
 ## Commandes utiles
 
