@@ -1,12 +1,8 @@
 import 'dotenv/config';
-import * as path from 'path';
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import { PrismaClient, UserRole, VehicleType, OrderStatus, PaymentMethod, PaymentStatus, DeliveryStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
-const dbPath = path.resolve(__dirname, '../dev.db');
-const adapter = new PrismaBetterSqlite3({ url: dbPath });
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient();
 
 // Code OTP universel pour les comptes de dev
 const DEV_OTP = '123456';
