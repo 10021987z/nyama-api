@@ -1,13 +1,8 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npm ci && npm run build && npx prisma migrate deploy"
+buildCommand = "npm ci && npm run build"
 
 [deploy]
-startCommand = "node dist/main.js"
+startCommand = "npx prisma migrate deploy 2>/dev/null; npm run start:prod"
 healthcheckPath = "/api/v1"
-healthcheckTimeout = 300
 restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 5
-
-[service]
-internalPort = 3000
