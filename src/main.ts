@@ -20,11 +20,11 @@ async function bootstrap() {
     }),
   );
 
-  // CORS dynamique depuis CORS_ORIGINS ou ALLOWED_ORIGINS
-  const corsOrigins = process.env.CORS_ORIGINS ?? process.env.ALLOWED_ORIGINS;
   app.enableCors({
-    origin: corsOrigins ? corsOrigins.split(',').map((o) => o.trim()) : '*',
+    origin: true,
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
   const port = parseInt(process.env.PORT ?? '3000', 10);
