@@ -20,7 +20,7 @@ async function bootstrap() {
     }),
   );
 
-  app.enableCors({
+  app.enableCors({ origin: true, credentials: true, methods: ['GET','HEAD','PUT','PATCH','POST','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','Authorization','Accept'] });
     origin: true,
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
