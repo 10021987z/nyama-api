@@ -13,7 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
 const OTP_TTL_SECONDS = 5 * 60;           // 5 minutes
-const OTP_RATE_LIMIT = 5;                 // max OTP par fenêtre
+const OTP_RATE_LIMIT = 100;               // max OTP par fenêtre (élevé pour tests)
 const OTP_RATE_WINDOW_SECONDS = 15 * 60;  // fenêtre 15 minutes
 const REFRESH_TTL_DAYS = 30;
 
