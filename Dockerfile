@@ -9,8 +9,7 @@ RUN npm ci
 
 COPY . .
 RUN npx prisma generate
-RUN npx tsc -p tsconfig.build.json 2>&1; exit 0
-RUN ls dist/src/main.js || echo "MAIN.JS MISSING"
+RUN npx tsc -p tsconfig.build.json
 
 EXPOSE 3000
 CMD ["node", "dist/src/main.js"]
