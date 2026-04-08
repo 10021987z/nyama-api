@@ -1,6 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DeliveryStatus, OrderStatus, Prisma } from '@prisma/client';
+import { DeliveryStatus, OrderStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginatedResult, paginationParams } from '../common/pagination.helper';
 import {
@@ -10,6 +15,13 @@ import {
   QueryAdminDeliveriesDto,
   QueryAdminFleetDto,
 } from './dto/query-admin.dto';
+import {
+  CreateAdminUserDto,
+  CreateAdminRestaurantDto,
+  UpdateAdminRestaurantDto,
+  CreateAdminFleetDto,
+  UpdateAdminFleetDto,
+} from './dto/admin-crud.dto';
 
 @Injectable()
 export class AnalyticsService {
@@ -1027,5 +1039,130 @@ export class AnalyticsService {
         apiKeyMasked: masked,
       },
     };
+  }
+
+  // ============================================================
+  // ADMIN — CRUD mutations
+  // ============================================================
+
+  async createAdminUser(dto: CreateAdminUserDto) {
+    const existing = await this.prisma.user.findUnique({
+      where: { phone: dto.phone },
+    });
+    if (existing) {
+      throw new ConflictException('Un utilisateur avec ce téléphone existe déjà');
+    }
+    return this.prisma.user.create({
+      data: {
+        name: dto.name,
+        phone: dto.phone,
+        role: dto.role,
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  async createAdminRestaurant(dto: CreateAdminRestaurantDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: dto.userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
+    if (user.role !== UserRole.COOK) {
+      throw new BadRequestException(
+        `L'utilisateur doit avoir le rôle COOK (actuel: ${user.role})`,
+      );
+    }
+
+    const existing = await this.prisma.cookProfile.findUnique({
+      where: { userId: dto.userId },
+    });
+    if (existing) {
+      throw new ConflictException('Cet utilisateur a déjà un profil cuisinière');
+    }
+
+    const quarter = await this.prisma.quarter.findUnique({
+      where: { id: dto.quarterId },
+    });
+    if (!quarter) throw new NotFoundException('Quartier introuvable');
+
+    return this.prisma.cookProfile.create({
+      data: {
+        userId: dto.userId,
+        displayName: dto.displayName,
+        specialty: JSON.stringify(dto.specialty),
+        description: dto.description,
+        quarterId: dto.quarterId,
+        locationLat: dto.locationLat,
+        locationLng: dto.locationLng,
+        landmark: dto.landmark,
+        momoPhone: dto.momoPhone,
+        momoProvider: dto.momoProvider,
+      },
+    });
+  }
+
+  async updateAdminRestaurant(id: string, dto: UpdateAdminRestaurantDto) {
+    const existing = await this.prisma.cookProfile.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Restaurant introuvable');
+
+    const data: Prisma.CookProfileUpdateInput = {};
+    if (dto.isVerified !== undefined) data.isVerified = dto.isVerified;
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
+    if (dto.subscriptionPlan !== undefined) data.subscriptionPlan = dto.subscriptionPlan;
+
+    return this.prisma.cookProfile.update({ where: { id }, data });
+  }
+
+  async createAdminFleetRider(dto: CreateAdminFleetDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: dto.userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
+    if (user.role !== UserRole.RIDER) {
+      throw new BadRequestException(
+        `L'utilisateur doit avoir le rôle RIDER (actuel: ${user.role})`,
+      );
+    }
+
+    const existing = await this.prisma.riderProfile.findUnique({
+      where: { userId: dto.userId },
+    });
+    if (existing) {
+      throw new ConflictException('Cet utilisateur a déjà un profil livreur');
+    }
+
+    return this.prisma.riderProfile.create({
+      data: {
+        userId: dto.userId,
+        vehicleType: dto.vehicleType,
+        plateNumber: dto.plateNumber,
+        momoPhone: dto.momoPhone,
+        momoProvider: dto.momoProvider,
+      },
+    });
+  }
+
+  async updateAdminFleetRider(id: string, dto: UpdateAdminFleetDto) {
+    const existing = await this.prisma.riderProfile.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Livreur introuvable');
+
+    const data: Prisma.RiderProfileUpdateInput = {};
+    if (dto.isVerified !== undefined) data.isVerified = dto.isVerified;
+    // Schema has no `status` field — map SUSPENDED→isVerified=false, ACTIVE→isVerified=true.
+    if (dto.status === 'SUSPENDED') data.isVerified = false;
+    if (dto.status === 'ACTIVE') data.isVerified = true;
+
+    return this.prisma.riderProfile.update({ where: { id }, data });
+  }
+
+  async getQuarters() {
+    const quarters = await this.prisma.quarter.findMany({
+      where: { isActive: true },
+      orderBy: [{ city: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true, city: true },
+    });
+    return { data: quarters };
   }
 }
