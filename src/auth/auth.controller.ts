@@ -29,6 +29,17 @@ export class AuthController {
     return this.authService.verifyOtp(dto.phone, dto.code);
   }
 
+  @Post('firebase')
+  @HttpCode(HttpStatus.OK)
+  authenticateWithFirebase(
+    @Body() body: { firebaseToken: string; phone?: string },
+  ) {
+    return this.authService.authenticateWithFirebase(
+      body.firebaseToken,
+      body.phone,
+    );
+  }
+
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   refreshToken(@Body() dto: RefreshTokenDto) {

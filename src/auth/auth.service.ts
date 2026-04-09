@@ -11,6 +11,7 @@ import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { FirebaseAdminService } from './firebase-admin.service';
 
 const OTP_TTL_SECONDS = 5 * 60;           // 5 minutes
 const OTP_RATE_LIMIT = 100;               // max OTP par fenêtre (élevé pour tests)
@@ -26,7 +27,82 @@ export class AuthService {
     private readonly redis: RedisService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly firebaseAdmin: FirebaseAdminService,
   ) {}
+
+  // ─────────────────────────────────────────────
+  // Firebase Auth — Email / Google / Phone
+  // ─────────────────────────────────────────────
+  async authenticateWithFirebase(firebaseToken: string, phone?: string) {
+    let decoded;
+    try {
+      decoded = await this.firebaseAdmin.verifyIdToken(firebaseToken);
+    } catch (error) {
+      this.logger.warn(`Firebase token invalide: ${(error as Error).message}`);
+      throw new UnauthorizedException('Token Firebase invalide');
+    }
+
+    const firebasePhone = decoded.phone_number || phone;
+    const firebaseEmail = decoded.email;
+    const firebaseName =
+      (decoded as any).name || decoded.email?.split('@')[0] || null;
+
+    let user = null as Awaited<ReturnType<typeof this.prisma.user.findUnique>>;
+
+    // 1. par firebaseUid
+    user = await this.prisma.user.findUnique({
+      where: { firebaseUid: decoded.uid },
+    });
+
+    // 2. par phone
+    if (!user && firebasePhone) {
+      user = await this.prisma.user.findUnique({
+        where: { phone: firebasePhone },
+      });
+    }
+
+    // 3. par email
+    if (!user && firebaseEmail) {
+      user = await this.prisma.user.findUnique({
+        where: { email: firebaseEmail },
+      });
+    }
+
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: {
+          phone: firebasePhone || `firebase_${decoded.uid}`,
+          email: firebaseEmail,
+          name: firebaseName,
+          role: UserRole.CLIENT,
+          firebaseUid: decoded.uid,
+        },
+      });
+      this.logger.log(`✅ Nouveau compte Firebase : ${user.phone}`);
+    } else if (!user.firebaseUid) {
+      // lier le compte existant à Firebase
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          firebaseUid: decoded.uid,
+          email: user.email ?? firebaseEmail,
+          name: user.name ?? firebaseName,
+        },
+      });
+    }
+
+    const tokens = await this.generateTokens(user.id, user.role, user.phone);
+    return {
+      ...tokens,
+      user: {
+        id: user.id,
+        phone: user.phone,
+        name: user.name,
+        role: user.role,
+        email: user.email,
+      },
+    };
+  }
 
   // ─────────────────────────────────────────────
   // OTP : demande
