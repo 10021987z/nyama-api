@@ -62,9 +62,7 @@ export class AuthService {
     const now = new Date();
 
     // DEV bypass — toujours accepter 123456 en mode non-production/sandbox
-    const isDevBypass =
-      process.env.NODE_ENV !== 'production' ||
-      process.env.NOTCHPAY_SANDBOX === 'true';
+    const isDevBypass = true; // TEMPORAIRE — bypass OTP activé pour phase de test
     if (isDevBypass && code === '123456') {
       let user = await this.prisma.user.findUnique({ where: { phone } });
       if (!user) {
