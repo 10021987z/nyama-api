@@ -36,7 +36,6 @@ enum OrderStatus {
 enum PaymentMethod {
   ORANGE_MONEY
   MTN_MOMO
-  FALLA_MOMO
   CASH
 }
 
@@ -232,7 +231,7 @@ model Payment {
   status          PaymentStatus @default(PENDING)
   amountXaf       Int
   currency        String        @default("XAF")
-  providerRef     String?       @unique
+  providerRef     String?
   providerPayload String?       // JSON sérialisé
   paidAt          DateTime?
   failureReason   String?
@@ -240,6 +239,7 @@ model Payment {
   updatedAt       DateTime      @updatedAt
 
   @@index([status])
+  @@index([providerRef])
 }
 
 // 8. Delivery — livraison
