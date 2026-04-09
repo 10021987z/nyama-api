@@ -61,6 +61,30 @@ export class AuthService {
   async verifyOtp(phone: string, code: string) {
     const now = new Date();
 
+    // DEV bypass — toujours accepter 123456 en mode non-production/sandbox
+    const isDevBypass =
+      process.env.NODE_ENV !== 'production' ||
+      process.env.NOTCHPAY_SANDBOX === 'true';
+    if (isDevBypass && code === '123456') {
+      let user = await this.prisma.user.findUnique({ where: { phone } });
+      if (!user) {
+        user = await this.prisma.user.create({
+          data: { phone, role: UserRole.CLIENT },
+        });
+        this.logger.log(`✅ Nouveau compte créé (dev bypass) : ${phone}`);
+      }
+      const tokens = await this.generateTokens(user.id, user.role, user.phone);
+      return {
+        ...tokens,
+        user: {
+          id: user.id,
+          phone: user.phone,
+          name: user.name,
+          role: user.role,
+        },
+      };
+    }
+
     // Cherche le dernier OTP valide pour ce numéro
     const otpRecord = await this.prisma.otpCode.findFirst({
       where: {
