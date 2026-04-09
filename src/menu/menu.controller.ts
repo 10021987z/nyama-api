@@ -6,6 +6,11 @@ import { QueryMenuDto } from './dto/query-menu.dto';
 export class MenuController {
   constructor(private readonly menuService: MenuService) {}
 
+  @Get()
+  findAllRoot(@Query() query: QueryMenuDto) {
+    return this.menuService.findItems(query);
+  }
+
   @Get('items')
   findAll(@Query() query: QueryMenuDto) {
     return this.menuService.findItems(query);
@@ -14,5 +19,13 @@ export class MenuController {
   @Get('items/:id')
   findOne(@Param('id') id: string) {
     return this.menuService.findItemById(id);
+  }
+
+  @Get('cook/:cookId')
+  findByCook(
+    @Param('cookId') cookId: string,
+    @Query() query: QueryMenuDto,
+  ) {
+    return this.menuService.findByCook(cookId, query);
   }
 }

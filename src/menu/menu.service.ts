@@ -47,6 +47,31 @@ export class MenuService {
     return paginatedResult(data, total, page, limit);
   }
 
+  async findByCook(cookId: string, dto: QueryMenuDto) {
+    const page = dto.page ?? 1;
+    const limit = dto.limit ?? 20;
+    const { skip, take } = paginationParams(page, limit);
+
+    const where: Prisma.MenuItemWhereInput = {
+      cookId,
+      isAvailable: true,
+      ...(dto.category ? { category: dto.category } : {}),
+    };
+
+    const [total, data] = await Promise.all([
+      this.prisma.menuItem.count({ where }),
+      this.prisma.menuItem.findMany({
+        where,
+        include: { cook: { select: COOK_SELECT } },
+        orderBy: [{ isDailySpecial: 'desc' }],
+        skip,
+        take,
+      }),
+    ]);
+
+    return paginatedResult(data, total, page, limit);
+  }
+
   async findItemById(id: string) {
     const item = await this.prisma.menuItem.findUnique({
       where: { id },

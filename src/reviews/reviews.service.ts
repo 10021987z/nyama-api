@@ -7,11 +7,47 @@ import {
 } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { paginatedResult, paginationParams } from '../common/pagination.helper';
 import { CreateReviewDto } from './dto/create-review.dto';
 
 @Injectable()
 export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async findAll(page = 1, limit = 20) {
+    const { skip, take } = paginationParams(page, limit);
+    const [total, data] = await Promise.all([
+      this.prisma.review.count(),
+      this.prisma.review.findMany({
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          author: { select: { id: true, name: true, avatarUrl: true } },
+          order: { select: { id: true, cookId: true, riderId: true } },
+        },
+      }),
+    ]);
+    return paginatedResult(data, total, page, limit);
+  }
+
+  async findByCook(cookId: string, page = 1, limit = 20) {
+    const { skip, take } = paginationParams(page, limit);
+    const where = { order: { cookId } };
+    const [total, data] = await Promise.all([
+      this.prisma.review.count({ where }),
+      this.prisma.review.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          author: { select: { id: true, name: true, avatarUrl: true } },
+        },
+      }),
+    ]);
+    return paginatedResult(data, total, page, limit);
+  }
 
   async create(clientId: string, dto: CreateReviewDto) {
     const order = await this.prisma.order.findUnique({

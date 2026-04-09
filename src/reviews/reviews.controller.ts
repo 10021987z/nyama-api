@@ -1,7 +1,10 @@
 import {
   Controller,
+  Get,
   Post,
   Body,
+  Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -20,12 +23,36 @@ interface AuthUser {
 }
 
 @Controller('reviews')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.CLIENT)
 export class ReviewsController {
   constructor(private readonly reviewsService: ReviewsService) {}
 
+  @Get()
+  findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.reviewsService.findAll(
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+    );
+  }
+
+  @Get(':cookId')
+  findByCook(
+    @Param('cookId') cookId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.reviewsService.findByCook(
+      cookId,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+    );
+  }
+
   @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.CLIENT)
   @HttpCode(HttpStatus.CREATED)
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateReviewDto) {
     return this.reviewsService.create(user.id, dto);
