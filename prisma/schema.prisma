@@ -71,6 +71,70 @@ enum SubscriptionStatus {
   CANCELLED
 }
 
+enum PartnerType {
+  COOK
+  RIDER
+}
+
+enum ApplicationStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum DisputeType {
+  LATE_DELIVERY
+  WRONG_ORDER
+  MISSING_ITEM
+  FOOD_QUALITY
+  RIDER_BEHAVIOR
+  COOK_BEHAVIOR
+  PAYMENT_ISSUE
+  OTHER
+}
+
+enum DisputeSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  WAITING_RESPONSE
+  RESOLVED
+  CLOSED
+  ESCALATED
+}
+
+enum TicketCategory {
+  ORDER_ISSUE
+  PAYMENT_ISSUE
+  ACCOUNT
+  TECHNICAL
+  SUGGESTION
+  OTHER
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_USER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
 // ============================================================
 // MODÈLES
 // ============================================================
@@ -91,23 +155,26 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  orders          Order[]        @relation("ClientOrders")
-  cookOrders      Order[]        @relation("CookOrders")
-  riderOrders     Order[]        @relation("RiderOrders")
-  cookProfile     CookProfile?
-  riderProfile    RiderProfile?
-  reviews         Review[]
-  sentMessages    ChatMessage[]
-  notifications   Notification[]
-  refreshTokens   RefreshToken[]
+  orders              Order[]              @relation("ClientOrders")
+  cookOrders          Order[]              @relation("CookOrders")
+  riderOrders         Order[]              @relation("RiderOrders")
+  cookProfile         CookProfile?
+  riderProfile        RiderProfile?
+  reviews             Review[]
+  sentMessages        ChatMessage[]
+  notifications       Notification[]
+  refreshTokens       RefreshToken[]
+  partnerApplications PartnerApplication[]
+  clientDisputes      Dispute[]            @relation("DisputeClient")
+  supportTickets      SupportTicket[]
 }
 
 // 2. Quarter — quartier de Douala ou Yaoundé
 model Quarter {
   id       String  @id @default(uuid())
   name     String
-  city     String  // Douala | Yaoundé
-  polygon  String  // GeoJSON sérialisé (SQLite ne supporte pas Json natif)
+  city     String // Douala | Yaoundé
+  polygon  String // GeoJSON sérialisé (SQLite ne supporte pas Json natif)
   isActive Boolean @default(true)
 
   users        User[]
@@ -122,7 +189,7 @@ model CookProfile {
   userId             String             @unique
   user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   displayName        String
-  specialty          String             // JSON array sérialisé ex: '["Ndolé","Eru"]'
+  specialty          String // JSON array sérialisé ex: '["Ndolé","Eru"]'
   description        String?
   avatarUrl          String?
   avgRating          Float              @default(0)
@@ -130,9 +197,9 @@ model CookProfile {
   isVerified         Boolean            @default(false)
   isActive           Boolean            @default(true)
   prepTimeAvgMin     Int?
-  openingHours       String?            // JSON sérialisé { mon:{open,close}, ... }
+  openingHours       String? // JSON sérialisé { mon:{open,close}, ... }
   momoPhone          String?
-  momoProvider       String?            // orange | mtn
+  momoProvider       String? // orange | mtn
   quarterId          String
   quarter            Quarter            @relation(fields: [quarterId], references: [id])
   locationLat        Float
@@ -202,6 +269,7 @@ model Order {
   delivery     Delivery?
   reviews      Review[]
   chatMessages ChatMessage[]
+  disputes     Dispute[]
 
   @@index([status])
   @@index([cookId])
@@ -234,7 +302,7 @@ model Payment {
   amountXaf       Int
   currency        String        @default("XAF")
   providerRef     String?
-  providerPayload String?       // JSON sérialisé
+  providerPayload String? // JSON sérialisé
   paidAt          DateTime?
   failureReason   String?
   createdAt       DateTime      @default(now())
@@ -328,7 +396,7 @@ model Notification {
   type      String
   title     String
   body      String
-  data      String?   // JSON sérialisé
+  data      String? // JSON sérialisé
   isRead    Boolean   @default(false)
   readAt    DateTime?
   createdAt DateTime  @default(now())
@@ -396,4 +464,122 @@ model RefreshToken {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+// 17. PartnerApplication — candidature cuisinière ou livreur
+model PartnerApplication {
+  id     String            @id @default(uuid())
+  userId String
+  user   User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type   PartnerType
+  status ApplicationStatus @default(PENDING)
+
+  // Infos personnelles
+  fullName      String
+  phone         String
+  email         String?
+  idNumber      String?
+  idDocumentUrl String?
+  selfieUrl     String?
+
+  // Cuisinière
+  specialties   String? // JSON array
+  cookingExp    String?
+  kitchenPhotos String? // JSON array d'URLs
+  healthCertUrl String?
+
+  // Livreur
+  vehicleType   String?
+  plateNumber   String?
+  licenseUrl    String?
+  insuranceUrl  String?
+  vehiclePhotos String? // JSON array
+
+  // Validation admin
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  score           Int?
+  notes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([type, status])
+  @@index([userId])
+}
+
+// 18. Dispute — litige sur une commande
+model Dispute {
+  id       String  @id @default(uuid())
+  orderId  String
+  order    Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  clientId String
+  client   User    @relation("DisputeClient", fields: [clientId], references: [id])
+  cookId   String?
+  riderId  String?
+
+  type     DisputeType
+  severity DisputeSeverity @default(MEDIUM)
+  status   DisputeStatus   @default(OPEN)
+
+  description String
+  evidence    String? // JSON array d'URLs photos
+
+  assignedTo      String?
+  resolution      String?
+  refundAmountXaf Int?
+  resolvedAt      DateTime?
+
+  messages DisputeMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([severity])
+  @@index([orderId])
+  @@index([clientId])
+  @@index([createdAt])
+}
+
+// 19. DisputeMessage — message dans un litige
+model DisputeMessage {
+  id         String   @id @default(uuid())
+  disputeId  String
+  dispute    Dispute  @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  authorId   String
+  authorRole String // CLIENT, ADMIN, COOK, RIDER
+  message    String
+  createdAt  DateTime @default(now())
+
+  @@index([disputeId, createdAt])
+}
+
+// 20. SupportTicket — ticket support depuis les apps
+model SupportTicket {
+  id           String         @id @default(uuid())
+  userId       String?
+  user         User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  reporterRole String // CLIENT, COOK, RIDER, GUEST
+  category     TicketCategory
+  priority     TicketPriority @default(NORMAL)
+  status       TicketStatus   @default(OPEN)
+  subject      String
+  message      String
+  contactPhone String?
+  contactEmail String?
+  orderId      String?
+  attachments  String? // JSON array d'URLs
+  assignedTo   String?
+  resolution   String?
+  resolvedAt   DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([status])
+  @@index([priority])
+  @@index([userId])
+  @@index([createdAt])
 }

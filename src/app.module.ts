@@ -17,6 +17,8 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { MarketingModule } from './marketing/marketing.module';
 import { SupportModule } from './support/support.module';
+import { DisputesModule } from './disputes/disputes.module';
+import { PartnersModule } from './partners/partners.module';
 import { EventsModule } from './events/events.module';
 
 @Module({
@@ -38,6 +40,8 @@ import { EventsModule } from './events/events.module';
     AnalyticsModule,
     MarketingModule,
     SupportModule,
+    DisputesModule,
+    PartnersModule,
   ],
   controllers: [AppController],
   providers: [AppService],
