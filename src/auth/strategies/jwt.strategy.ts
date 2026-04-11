@@ -40,7 +40,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // claims and a `sub` that maps to AdminAccount.id (NOT User.id).
     // We skip the User lookup entirely and return a synthetic principal
     // with role = ADMIN so existing @Roles(UserRole.ADMIN) guards pass.
-    if (payload.isAdmin === true && payload.adminRole) {
+    if (payload.adminRole) {
       return {
         id: payload.sub,
         role: UserRole.ADMIN,
