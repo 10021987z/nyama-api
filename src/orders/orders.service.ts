@@ -168,6 +168,67 @@ export class OrdersService {
     return paginatedResult(data, total, page, limit);
   }
 
+  async adminUpdateStatus(
+    orderId: string,
+    status: OrderStatus,
+    cancelReason?: string,
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+    if (!order) throw new NotFoundException('Commande introuvable');
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status,
+        ...(status === OrderStatus.CANCELLED && cancelReason
+          ? { cancelReason }
+          : {}),
+      },
+      include: ORDER_DETAIL_INCLUDE,
+    });
+    // Let realtime listeners know
+    this.eventsService.notifyClient(order.clientId, 'order:status', {
+      orderId,
+      status,
+    });
+    this.eventsService.notifyCook(order.cookId, 'order:status', {
+      orderId,
+      status,
+    });
+    return updated;
+  }
+
+  async clientCancel(orderId: string, clientId: string, reason?: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (order.clientId !== clientId)
+      throw new ForbiddenException('Cette commande ne vous appartient pas');
+    if (
+      order.status !== OrderStatus.PENDING &&
+      order.status !== OrderStatus.CONFIRMED
+    ) {
+      throw new BadRequestException(
+        'Cette commande ne peut plus être annulée',
+      );
+    }
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: OrderStatus.CANCELLED,
+        cancelReason: reason ?? 'Annulée par le client',
+      },
+      include: ORDER_DETAIL_INCLUDE,
+    });
+    this.eventsService.notifyCook(order.cookId, 'order:cancelled', {
+      orderId,
+    });
+    return updated;
+  }
+
   async findOne(orderId: string, userId: string, role: UserRole) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },

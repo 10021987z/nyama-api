@@ -8,6 +8,6 @@ import { NotchPayService } from './notchpay.service';
   imports: [ConfigModule],
   providers: [PaymentsService, NotchPayService],
   controllers: [PaymentsController],
-  exports: [NotchPayService],
+  exports: [NotchPayService, PaymentsService],
 })
 export class PaymentsModule {}
