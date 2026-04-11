@@ -11,9 +11,10 @@ export interface JwtPayload {
   role?: string;
   phone?: string;
   // Admin dashboard tokens (signed by nyama-dashboard with the shared
-  // JWT_SECRET). Presence of `adminRole` switches validation into the
-  // admin bypass path — see `validate()` below.
+  // JWT_SECRET). Presence of `adminRole` + `isAdmin === true` switches
+  // validation into the admin bypass path — see `validate()` below.
   adminRole?: string;
+  isAdmin?: boolean;
   username?: string;
   displayName?: string;
   iat?: number;
@@ -35,18 +36,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: JwtPayload) {
     // ── Admin dashboard path ─────────────────────────────────────────
-    // Tokens signed by nyama-dashboard contain an `adminRole` claim and
-    // a `sub` that maps to AdminAccount.id (NOT User.id). We skip the
-    // User lookup entirely and return a synthetic principal with
-    // role = ADMIN so existing @Roles(UserRole.ADMIN) guards pass.
-    if (payload.adminRole) {
+    // Tokens signed by nyama-dashboard contain `adminRole` + `isAdmin`
+    // claims and a `sub` that maps to AdminAccount.id (NOT User.id).
+    // We skip the User lookup entirely and return a synthetic principal
+    // with role = ADMIN so existing @Roles(UserRole.ADMIN) guards pass.
+    if (payload.isAdmin === true && payload.adminRole) {
       return {
         id: payload.sub,
-        phone: '',
         role: UserRole.ADMIN,
-        name: payload.displayName ?? payload.username ?? 'Admin',
         adminRole: payload.adminRole,
         isAdmin: true,
+        username: payload.username,
+        displayName: payload.displayName,
+        name: payload.displayName ?? payload.username ?? 'Admin',
+        phone: null,
       };
     }
 
