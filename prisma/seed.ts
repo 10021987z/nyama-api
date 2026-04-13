@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { PrismaClient, UserRole, VehicleType, OrderStatus, PaymentMethod, PaymentStatus, DeliveryStatus } from '@prisma/client';
+import { PrismaClient, UserRole, VehicleType, OrderStatus, PaymentMethod, PaymentStatus, DeliveryStatus, PartnerType, ApplicationStatus, DisputeType, DisputeSeverity, DisputeStatus, TicketCategory, TicketPriority, TicketStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -1378,6 +1378,265 @@ async function main() {
   console.log('   ✅ 6 notifications créées\n');
 
   // ============================================================
+  // CANDIDATURES PARTENAIRES (3 candidatures test)
+  // ============================================================
+
+  console.log('📋 Création des candidatures partenaires...');
+
+  // Candidature cuisinière — en attente
+  await prisma.partnerApplication.upsert({
+    where: { id: 'pa-cook-pending' },
+    update: {},
+    create: {
+      id: 'pa-cook-pending',
+      userId: fabrice.id,
+      type: PartnerType.COOK,
+      status: ApplicationStatus.PENDING,
+      fullName: 'Marie-Claire Ngo',
+      phone: '+237694000001',
+      email: 'marie.ngo@email.cm',
+      idNumber: 'CM-ID-20240001',
+      idDocumentUrl: 'https://storage.nyama.cm/docs/id-marie.jpg',
+      selfieUrl: 'https://storage.nyama.cm/docs/selfie-marie.jpg',
+      specialties: JSON.stringify(['Ndolé', 'Koki', 'Mbongo Tchobi']),
+      cookingExp: '8 ans de cuisine camerounaise traditionnelle, ancienne restauratrice à Bonanjo',
+      kitchenPhotos: JSON.stringify([
+        'https://storage.nyama.cm/docs/kitchen-marie-1.jpg',
+        'https://storage.nyama.cm/docs/kitchen-marie-2.jpg',
+      ]),
+      healthCertUrl: 'https://storage.nyama.cm/docs/health-marie.pdf',
+      score: 78,
+      createdAt: new Date('2026-04-10T08:00:00Z'),
+    },
+  });
+
+  // Candidature livreur — en revue
+  await prisma.partnerApplication.upsert({
+    where: { id: 'pa-rider-review' },
+    update: {},
+    create: {
+      id: 'pa-rider-review',
+      userId: aminata.id,
+      type: PartnerType.RIDER,
+      status: ApplicationStatus.UNDER_REVIEW,
+      fullName: 'Jean-Pierre Fotso',
+      phone: '+237695000002',
+      email: 'jp.fotso@email.cm',
+      idNumber: 'CM-ID-20240002',
+      idDocumentUrl: 'https://storage.nyama.cm/docs/id-jp.jpg',
+      selfieUrl: 'https://storage.nyama.cm/docs/selfie-jp.jpg',
+      vehicleType: 'MOTO',
+      plateNumber: 'LT-5678-B',
+      licenseUrl: 'https://storage.nyama.cm/docs/license-jp.jpg',
+      insuranceUrl: 'https://storage.nyama.cm/docs/insurance-jp.pdf',
+      vehiclePhotos: JSON.stringify([
+        'https://storage.nyama.cm/docs/moto-jp-1.jpg',
+      ]),
+      reviewedBy: userAdmin.id,
+      score: 85,
+      createdAt: new Date('2026-04-08T14:30:00Z'),
+    },
+  });
+
+  // Candidature cuisinière — rejetée
+  await prisma.partnerApplication.upsert({
+    where: { id: 'pa-cook-rejected' },
+    update: {},
+    create: {
+      id: 'pa-cook-rejected',
+      userId: aminata.id,
+      type: PartnerType.COOK,
+      status: ApplicationStatus.REJECTED,
+      fullName: 'Brigitte Tamba',
+      phone: '+237696000003',
+      specialties: JSON.stringify(['Poisson braisé']),
+      cookingExp: '2 ans',
+      rejectionReason: 'Photos de cuisine insuffisantes, certificat sanitaire expiré',
+      reviewedBy: userAdmin.id,
+      reviewedAt: new Date('2026-04-06T10:00:00Z'),
+      score: 35,
+      createdAt: new Date('2026-04-04T09:00:00Z'),
+    },
+  });
+
+  console.log('   ✅ 3 candidatures partenaires créées\n');
+
+  // ============================================================
+  // LITIGES (3 litiges test)
+  // ============================================================
+
+  console.log('⚖️  Création des litiges...');
+
+  // Litige 1 — ouvert, haute sévérité
+  const dispute1 = await prisma.dispute.upsert({
+    where: { id: 'disp-001' },
+    update: {},
+    create: {
+      id: 'disp-001',
+      orderId: order1.id,
+      clientId: fabrice.id,
+      cookId: userCatherine.id,
+      type: DisputeType.WRONG_ORDER,
+      severity: DisputeSeverity.HIGH,
+      status: DisputeStatus.OPEN,
+      description: 'J\'ai commandé un Ndolé avec du plantain mais j\'ai reçu du riz. Le plat n\'est pas celui que j\'avais choisi.',
+      evidence: JSON.stringify(['https://storage.nyama.cm/evidence/disp001-photo1.jpg']),
+      createdAt: new Date('2026-04-11T12:00:00Z'),
+    },
+  });
+
+  await prisma.disputeMessage.createMany({
+    data: [
+      {
+        id: 'dm-001-1',
+        disputeId: dispute1.id,
+        authorId: fabrice.id,
+        authorRole: 'CLIENT',
+        message: 'J\'ai commandé un Ndolé avec du plantain mais j\'ai reçu du riz. Voir la photo.',
+        createdAt: new Date('2026-04-11T12:00:00Z'),
+      },
+      {
+        id: 'dm-001-2',
+        disputeId: dispute1.id,
+        authorId: userAdmin.id,
+        authorRole: 'ADMIN',
+        message: 'Merci pour votre signalement. Nous contactons la cuisinière pour vérification.',
+        createdAt: new Date('2026-04-11T12:30:00Z'),
+      },
+    ],
+  });
+
+  // Litige 2 — en cours de résolution
+  const dispute2 = await prisma.dispute.upsert({
+    where: { id: 'disp-002' },
+    update: {},
+    create: {
+      id: 'disp-002',
+      orderId: order3.id,
+      clientId: aminata.id,
+      cookId: userRose.id,
+      riderId: userKevin.id,
+      type: DisputeType.LATE_DELIVERY,
+      severity: DisputeSeverity.MEDIUM,
+      status: DisputeStatus.UNDER_REVIEW,
+      description: 'Livraison prévue en 30 minutes, arrivée au bout de 1h45. Le repas était froid.',
+      assignedTo: userAdmin.id,
+      createdAt: new Date('2026-04-09T18:00:00Z'),
+    },
+  });
+
+  await prisma.disputeMessage.create({
+    data: {
+      id: 'dm-002-1',
+      disputeId: dispute2.id,
+      authorId: aminata.id,
+      authorRole: 'CLIENT',
+      message: 'J\'ai attendu presque 2 heures pour ma commande. C\'est inacceptable !',
+      createdAt: new Date('2026-04-09T18:00:00Z'),
+    },
+  });
+
+  // Litige 3 — résolu avec remboursement
+  await prisma.dispute.upsert({
+    where: { id: 'disp-003' },
+    update: {},
+    create: {
+      id: 'disp-003',
+      orderId: order6.id,
+      clientId: aminata.id,
+      cookId: userRose.id,
+      type: DisputeType.MISSING_ITEM,
+      severity: DisputeSeverity.LOW,
+      status: DisputeStatus.RESOLVED,
+      description: 'Il manquait le supplément poisson dans ma commande.',
+      assignedTo: userAdmin.id,
+      resolution: 'Remboursement partiel de 1500 XAF accordé pour le supplément manquant.',
+      refundAmountXaf: 1500,
+      resolvedAt: new Date('2026-04-07T16:00:00Z'),
+      createdAt: new Date('2026-04-07T11:00:00Z'),
+    },
+  });
+
+  console.log('   ✅ 3 litiges créés (1 ouvert, 1 en revue, 1 résolu)\n');
+
+  // ============================================================
+  // TICKETS SUPPORT (5 tickets test)
+  // ============================================================
+
+  console.log('🎫 Création des tickets support...');
+
+  await prisma.supportTicket.createMany({
+    data: [
+      {
+        id: 'ticket-001',
+        userId: fabrice.id,
+        reporterRole: 'CLIENT',
+        category: TicketCategory.PAYMENT_ISSUE,
+        priority: TicketPriority.HIGH,
+        status: TicketStatus.OPEN,
+        subject: 'Paiement débité mais commande non confirmée',
+        message: 'J\'ai payé 4500 XAF via Orange Money mais la commande est restée en statut "En attente". Mon numéro de transaction : OM-2026041001.',
+        contactPhone: '+237691000001',
+        orderId: order1.id,
+        createdAt: new Date('2026-04-12T09:00:00Z'),
+      },
+      {
+        id: 'ticket-002',
+        userId: aminata.id,
+        reporterRole: 'CLIENT',
+        category: TicketCategory.ORDER_ISSUE,
+        priority: TicketPriority.NORMAL,
+        status: TicketStatus.IN_PROGRESS,
+        subject: 'Commande livrée à la mauvaise adresse',
+        message: 'Le livreur a déposé ma commande chez le voisin au lieu de mon domicile. J\'habite au 3ème étage, immeuble bleu.',
+        contactPhone: '+237677000010',
+        assignedTo: userAdmin.id,
+        orderId: order3.id,
+        createdAt: new Date('2026-04-11T14:00:00Z'),
+      },
+      {
+        id: 'ticket-003',
+        userId: userCatherine.id,
+        reporterRole: 'COOK',
+        category: TicketCategory.TECHNICAL,
+        priority: TicketPriority.NORMAL,
+        status: TicketStatus.OPEN,
+        subject: 'L\'application Pro ne reçoit plus les notifications',
+        message: 'Depuis hier, je ne reçois plus les alertes de nouvelles commandes sur l\'app Nyama Pro. J\'ai raté 3 commandes.',
+        contactPhone: '+237690000001',
+        createdAt: new Date('2026-04-11T07:30:00Z'),
+      },
+      {
+        id: 'ticket-004',
+        userId: userKevin.id,
+        reporterRole: 'RIDER',
+        category: TicketCategory.ACCOUNT,
+        priority: TicketPriority.URGENT,
+        status: TicketStatus.OPEN,
+        subject: 'Compte bloqué sans raison',
+        message: 'Mon compte livreur est bloqué depuis ce matin, je ne peux plus recevoir de missions. J\'ai besoin de travailler !',
+        contactPhone: '+237692000001',
+        createdAt: new Date('2026-04-12T06:00:00Z'),
+      },
+      {
+        id: 'ticket-005',
+        reporterRole: 'GUEST',
+        category: TicketCategory.SUGGESTION,
+        priority: TicketPriority.LOW,
+        status: TicketStatus.RESOLVED,
+        subject: 'Ajouter le paiement par carte Visa',
+        message: 'Serait-il possible d\'ajouter le paiement par carte bancaire ? Orange Money et MTN MoMo ne sont pas toujours disponibles.',
+        contactEmail: 'visiteur@email.cm',
+        resolution: 'Suggestion notée et transmise à l\'équipe produit. Le paiement par carte est prévu pour la v2.',
+        resolvedAt: new Date('2026-04-10T15:00:00Z'),
+        createdAt: new Date('2026-04-08T11:00:00Z'),
+      },
+    ],
+  });
+
+  console.log('   ✅ 5 tickets support créés\n');
+
+  // ============================================================
   // RÉSUMÉ
   // ============================================================
 
@@ -1393,6 +1652,9 @@ async function main() {
   console.log('   • 1  admin      (Admin NYAMA)');
   console.log('   • 10 commandes  (6 DELIVERED + statuts variés)');
   console.log('   • 6  notifications');
+  console.log('   • 3  candidatures partenaires');
+  console.log('   • 3  litiges    (1 ouvert, 1 en revue, 1 résolu)');
+  console.log('   • 5  tickets support');
   console.log('   • OTP dev universelle : 123456');
   console.log('');
   console.log('📱 Numéros de test :');
