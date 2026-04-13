@@ -609,3 +609,41 @@ model SupportTicket {
   @@index([userId])
   @@index([createdAt])
 }
+
+// 21. AdminAccount — comptes admin du dashboard
+model AdminAccount {
+  id                String    @id @default(uuid())
+  username          String    @unique
+  passwordHash      String
+  displayName       String
+  role              String    @default("ADMIN")
+  isActive          Boolean   @default(true)
+  lastLoginAt       DateTime?
+  loginCount        Int       @default(0)
+  createdBy         String?
+  passwordExpiresAt DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+// 22. AdminLoginLog — journal de connexions admin
+model AdminLoginLog {
+  id        String   @id @default(uuid())
+  username  String
+  ip        String?
+  userAgent String?
+  success   Boolean
+  reason    String?
+  createdAt DateTime @default(now())
+}
+
+// 23. AdminAuditLog — journal d'audit admin
+model AdminAuditLog {
+  id        String   @id @default(uuid())
+  adminId   String
+  action    String
+  target    String?
+  details   String?
+  ip        String?
+  createdAt DateTime @default(now())
+}
