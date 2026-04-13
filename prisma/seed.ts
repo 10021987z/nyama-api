@@ -1637,6 +1637,64 @@ async function main() {
   console.log('   ✅ 5 tickets support créés\n');
 
   // ============================================================
+  // CANDIDATURES PARTENAIRES (portail web — public)
+  // ============================================================
+
+  console.log('🤝 Création des candidatures partenaires (portail web)...');
+
+  await prisma.partnershipRequest.createMany({
+    skipDuplicates: true,
+    data: [
+      {
+        id: 'pr-001',
+        type: 'cuisiniere',
+        firstName: 'Jeanne',
+        lastName: 'Mbarga',
+        phone: '+237670000001',
+        email: 'jeanne.mbarga@email.cm',
+        companyName: 'Chez Maman Jeanne',
+        description: 'Spécialisée dans les plats bassa : Mbongo tchobi, Ndolè, Sauce jaune. 15 ans d\'expérience en restauration.',
+        city: 'Douala',
+        quarter: 'Akwa',
+        status: 'pending',
+        createdAt: new Date('2026-04-10T08:00:00Z'),
+      },
+      {
+        id: 'pr-002',
+        type: 'cuisiniere',
+        firstName: 'Sylvie',
+        lastName: 'Ngo Nyeck',
+        phone: '+237655000002',
+        email: 'sylvie.ngo@email.cm',
+        companyName: 'Traiteur Saveurs du Cameroun',
+        description: 'Traiteur pour événements, spécialités variées de toutes les régions du Cameroun.',
+        city: 'Yaoundé',
+        quarter: 'Bastos',
+        status: 'approved',
+        adminNotes: 'Excellente candidate, références vérifiées.',
+        reviewedBy: 'admin-seed',
+        reviewedAt: new Date('2026-04-11T14:00:00Z'),
+        createdAt: new Date('2026-04-09T10:30:00Z'),
+      },
+      {
+        id: 'pr-003',
+        type: 'livreur',
+        firstName: 'Jean-Pierre',
+        lastName: 'Fotso',
+        phone: '+237680000003',
+        city: 'Douala',
+        quarter: 'Bonabéri',
+        vehicleType: 'moto',
+        idNumber: 'CM123456789',
+        status: 'pending',
+        createdAt: new Date('2026-04-12T06:00:00Z'),
+      },
+    ],
+  });
+
+  console.log('   ✅ 3 candidatures partenaires (portail web) créées\n');
+
+  // ============================================================
   // RÉSUMÉ
   // ============================================================
 
@@ -1655,6 +1713,7 @@ async function main() {
   console.log('   • 3  candidatures partenaires');
   console.log('   • 3  litiges    (1 ouvert, 1 en revue, 1 résolu)');
   console.log('   • 5  tickets support');
+  console.log('   • 3  candidatures web (PartnershipRequest)');
   console.log('   • OTP dev universelle : 123456');
   console.log('');
   console.log('📱 Numéros de test :');

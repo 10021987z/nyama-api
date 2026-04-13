@@ -19,6 +19,7 @@ import { MarketingModule } from './marketing/marketing.module';
 import { SupportModule } from './support/support.module';
 import { DisputesModule } from './disputes/disputes.module';
 import { PartnersModule } from './partners/partners.module';
+import { PartnershipsModule } from './partnerships/partnerships.module';
 import { EventsModule } from './events/events.module';
 
 @Module({
@@ -42,6 +43,7 @@ import { EventsModule } from './events/events.module';
     SupportModule,
     DisputesModule,
     PartnersModule,
+    PartnershipsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
