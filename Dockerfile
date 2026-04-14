@@ -9,7 +9,7 @@ RUN npm ci
 
 COPY . .
 RUN npx prisma generate
-RUN npx tsc -p tsconfig.build.json
+RUN npx nest build
 
 EXPOSE 3000
 CMD ["node", "dist/src/main.js"]
