@@ -62,7 +62,11 @@ export class RidersService {
     const [updatedOrder] = await Promise.all([
       this.prisma.order.update({
         where: { id: orderId },
-        data: { riderId: riderUserId, status: OrderStatus.PICKED_UP },
+        data: {
+          riderId: riderUserId,
+          status: OrderStatus.ASSIGNED,
+          assignedAt: new Date(),
+        },
         include: {
           items: { include: { menuItem: { select: { name: true } } } },
           cook: { select: { id: true, name: true } },
@@ -79,11 +83,15 @@ export class RidersService {
       }),
     ]);
 
-    // Notifier le client que son livreur a accepté
+    // Notifier le client que son livreur est assigné
     this.eventsService.notifyClient(order.clientId, 'order:status', {
       orderId,
-      status: OrderStatus.PICKED_UP,
+      status: OrderStatus.ASSIGNED,
       riderId: riderUserId,
+    });
+    this.eventsService.notifyCook(order.cookId, 'order:status', {
+      orderId,
+      status: OrderStatus.ASSIGNED,
     });
 
     return updatedOrder;
@@ -116,6 +124,13 @@ export class RidersService {
       updateData.pickedUpAt = new Date();
     }
 
+    if (newStatus === DeliveryStatus.PICKED_UP) {
+      await this.prisma.order.update({
+        where: { id: delivery.orderId },
+        data: { status: OrderStatus.PICKED_UP, pickedUpAt: new Date() },
+      });
+    }
+
     if (newStatus === DeliveryStatus.DELIVERED) {
       updateData.deliveredAt = new Date();
       const riderEarningXaf = Math.round(delivery.order.deliveryFeeXaf * RIDER_COMMISSION);
@@ -125,7 +140,7 @@ export class RidersService {
       await Promise.all([
         this.prisma.order.update({
           where: { id: delivery.orderId },
-          data: { status: OrderStatus.DELIVERED },
+          data: { status: OrderStatus.DELIVERED, deliveredAt: new Date() },
         }),
         this.prisma.riderEarning.create({
           data: {

@@ -134,7 +134,13 @@ export class CooksService {
 
     const updated = await this.prisma.order.update({
       where: { id: orderId },
-      data: { status: targetStatus },
+      data: {
+        status: targetStatus,
+        ...(targetStatus === OrderStatus.CONFIRMED || targetStatus === OrderStatus.PREPARING
+          ? { acceptedAt: new Date() }
+          : {}),
+        ...(targetStatus === OrderStatus.READY ? { readyAt: new Date() } : {}),
+      },
       include: ORDER_INCLUDE,
     });
 
@@ -170,7 +176,11 @@ export class CooksService {
 
     return this.prisma.order.update({
       where: { id: orderId },
-      data: { status: OrderStatus.CANCELLED, cancelReason: reason },
+      data: {
+        status: OrderStatus.CANCELLED,
+        cancelReason: reason,
+        cancelledAt: new Date(),
+      },
       include: ORDER_INCLUDE,
     });
   }
