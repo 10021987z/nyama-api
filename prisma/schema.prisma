@@ -27,6 +27,7 @@ enum OrderStatus {
   CONFIRMED
   PREPARING
   READY
+  ASSIGNED
   PICKED_UP
   DELIVERING
   DELIVERED
@@ -263,6 +264,12 @@ model Order {
   landmark        String?
   clientNote      String?
   cancelReason    String?
+  acceptedAt      DateTime?
+  readyAt         DateTime?
+  assignedAt      DateTime?
+  pickedUpAt      DateTime?
+  deliveredAt     DateTime?
+  cancelledAt     DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

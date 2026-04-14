@@ -51,9 +51,58 @@ export class OrdersController {
   cancel(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
-    @Body() body: { reason?: string },
+    @Body() body: { reason?: string; cancelReason?: string },
   ) {
-    return this.ordersService.clientCancel(id, user.id, body?.reason);
+    const reason = body?.reason ?? body?.cancelReason;
+    if (user.role === UserRole.ADMIN) {
+      return this.ordersService.adminUpdateStatus(id, 'CANCELLED' as never, reason);
+    }
+    return this.ordersService.clientCancel(id, user.id, reason);
+  }
+
+  @Patch(':id/accept')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.COOK)
+  @HttpCode(HttpStatus.OK)
+  accept(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.ordersService.cookAccept(id, user.id);
+  }
+
+  @Patch(':id/ready')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.COOK)
+  @HttpCode(HttpStatus.OK)
+  ready(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.ordersService.cookReady(id, user.id);
+  }
+
+  @Patch(':id/assign')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.RIDER, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  assign(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: { riderId?: string },
+  ) {
+    const riderId = body?.riderId ?? user.id;
+    return this.ordersService.assignRider(id, riderId, user.role, user.id);
+  }
+
+  @Patch(':id/pickup')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.RIDER)
+  @HttpCode(HttpStatus.OK)
+  pickup(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.ordersService.riderPickup(id, user.id);
+  }
+
+  @Patch(':id/deliver')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.RIDER)
+  @HttpCode(HttpStatus.OK)
+  deliver(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.ordersService.riderDeliver(id, user.id);
   }
 }
 

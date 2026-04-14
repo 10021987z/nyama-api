@@ -135,7 +135,9 @@ export class OrdersService {
         : role === UserRole.COOK
           ? { cookId: userId }
           : role === UserRole.RIDER
-            ? { riderId: userId }
+            ? dto.status === OrderStatus.READY
+              ? { riderId: null, status: OrderStatus.READY }
+              : { riderId: userId }
             : {}; // ADMIN : tout
 
     const dateFilter: Prisma.OrderWhereInput =
@@ -182,9 +184,14 @@ export class OrdersService {
       where: { id: orderId },
       data: {
         status,
-        ...(status === OrderStatus.CANCELLED && cancelReason
-          ? { cancelReason }
+        ...(status === OrderStatus.CANCELLED
+          ? { cancelReason: cancelReason ?? 'Annulée par admin', cancelledAt: new Date() }
           : {}),
+        ...(status === OrderStatus.PREPARING ? { acceptedAt: new Date() } : {}),
+        ...(status === OrderStatus.READY ? { readyAt: new Date() } : {}),
+        ...(status === OrderStatus.ASSIGNED ? { assignedAt: new Date() } : {}),
+        ...(status === OrderStatus.PICKED_UP ? { pickedUpAt: new Date() } : {}),
+        ...(status === OrderStatus.DELIVERED ? { deliveredAt: new Date() } : {}),
       },
       include: ORDER_DETAIL_INCLUDE,
     });
@@ -196,6 +203,163 @@ export class OrdersService {
     this.eventsService.notifyCook(order.cookId, 'order:status', {
       orderId,
       status,
+    });
+    return updated;
+  }
+
+  async cookAccept(orderId: string, cookUserId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (order.cookId !== cookUserId)
+      throw new ForbiddenException('Cette commande ne vous appartient pas');
+    if (order.status !== OrderStatus.PENDING)
+      throw new BadRequestException('Cette commande ne peut plus être acceptée');
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.PREPARING, acceptedAt: new Date() },
+      include: ORDER_DETAIL_INCLUDE,
+    });
+    this.eventsService.notifyClient(order.clientId, 'order:status', {
+      orderId,
+      status: OrderStatus.PREPARING,
+    });
+    return updated;
+  }
+
+  async cookReady(orderId: string, cookUserId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (order.cookId !== cookUserId)
+      throw new ForbiddenException('Cette commande ne vous appartient pas');
+    if (order.status !== OrderStatus.PREPARING)
+      throw new BadRequestException('La commande doit être en préparation');
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.READY, readyAt: new Date() },
+      include: ORDER_DETAIL_INCLUDE,
+    });
+    this.eventsService.notifyClient(order.clientId, 'order:status', {
+      orderId,
+      status: OrderStatus.READY,
+    });
+    this.eventsService.notifyAvailableRiders(null, 'order:available', {
+      orderId,
+      cookId: order.cookId,
+      deliveryAddress: order.deliveryAddress,
+    });
+    return updated;
+  }
+
+  async assignRider(
+    orderId: string,
+    riderUserId: string,
+    actorRole: UserRole,
+    actorId: string,
+  ) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (order.status !== OrderStatus.READY)
+      throw new BadRequestException('La commande n\'est pas disponible à l\'assignation');
+    if (order.riderId)
+      throw new BadRequestException('Un livreur est déjà assigné à cette commande');
+
+    if (actorRole === UserRole.RIDER && actorId !== riderUserId)
+      throw new ForbiddenException('Vous ne pouvez assigner que vous-même');
+
+    const riderProfile = await this.prisma.riderProfile.findUnique({
+      where: { userId: riderUserId },
+    });
+    if (!riderProfile) throw new NotFoundException('Livreur introuvable');
+
+    const cookProfile = await this.prisma.cookProfile.findUnique({
+      where: { userId: order.cookId },
+    });
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        riderId: riderUserId,
+        status: OrderStatus.ASSIGNED,
+        assignedAt: new Date(),
+        delivery: {
+          create: {
+            riderId: riderProfile.id,
+            pickupLat: cookProfile?.locationLat,
+            pickupLng: cookProfile?.locationLng,
+            dropoffLat: order.deliveryLat,
+            dropoffLng: order.deliveryLng,
+          },
+        },
+      },
+      include: ORDER_DETAIL_INCLUDE,
+    });
+    this.eventsService.notifyClient(order.clientId, 'order:status', {
+      orderId,
+      status: OrderStatus.ASSIGNED,
+    });
+    this.eventsService.notifyCook(order.cookId, 'order:status', {
+      orderId,
+      status: OrderStatus.ASSIGNED,
+    });
+    this.eventsService.notifyRider(riderUserId, 'order:assigned', { orderId });
+    return updated;
+  }
+
+  async riderPickup(orderId: string, riderUserId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (order.riderId !== riderUserId)
+      throw new ForbiddenException('Cette commande ne vous est pas assignée');
+    if (order.status !== OrderStatus.ASSIGNED)
+      throw new BadRequestException('La commande doit être assignée pour être récupérée');
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: OrderStatus.PICKED_UP,
+        pickedUpAt: new Date(),
+        delivery: { update: { status: 'PICKED_UP', pickedUpAt: new Date() } },
+      },
+      include: ORDER_DETAIL_INCLUDE,
+    });
+    this.eventsService.notifyClient(order.clientId, 'order:status', {
+      orderId,
+      status: OrderStatus.PICKED_UP,
+    });
+    this.eventsService.notifyCook(order.cookId, 'order:status', {
+      orderId,
+      status: OrderStatus.PICKED_UP,
+    });
+    return updated;
+  }
+
+  async riderDeliver(orderId: string, riderUserId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (order.riderId !== riderUserId)
+      throw new ForbiddenException('Cette commande ne vous est pas assignée');
+    if (order.status !== OrderStatus.PICKED_UP)
+      throw new BadRequestException('La commande doit être récupérée pour être livrée');
+
+    const now = new Date();
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: OrderStatus.DELIVERED,
+        deliveredAt: now,
+        delivery: { update: { status: 'DELIVERED', deliveredAt: now } },
+      },
+      include: ORDER_DETAIL_INCLUDE,
+    });
+    this.eventsService.notifyClient(order.clientId, 'order:status', {
+      orderId,
+      status: OrderStatus.DELIVERED,
+    });
+    this.eventsService.notifyCook(order.cookId, 'order:status', {
+      orderId,
+      status: OrderStatus.DELIVERED,
     });
     return updated;
   }
@@ -220,6 +384,7 @@ export class OrdersService {
       data: {
         status: OrderStatus.CANCELLED,
         cancelReason: reason ?? 'Annulée par le client',
+        cancelledAt: new Date(),
       },
       include: ORDER_DETAIL_INCLUDE,
     });
