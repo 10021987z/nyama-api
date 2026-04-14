@@ -35,6 +35,17 @@ export class SupportTicketsController {
   }
 }
 
+// ── Public contact route (portal web, no auth) ─────────────────────
+@Controller('support/contact')
+export class PublicSupportController {
+  constructor(private readonly service: SupportService) {}
+
+  @Post()
+  createPublic(@Body() dto: CreateTicketDto) {
+    return this.service.create(null, { ...dto, reporterRole: 'GUEST' });
+  }
+}
+
 // ── Admin dashboard routes ─────────────────────────────────────────
 @Controller('admin/support')
 @UseGuards(JwtAuthGuard, RolesGuard)
