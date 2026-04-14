@@ -5,11 +5,14 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RequestOtpDto } from './dto/request-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { AccessCodeDto } from './dto/access-code.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 
@@ -38,6 +41,16 @@ export class AuthController {
       body.firebaseToken,
       body.phone,
     );
+  }
+
+  @Post('access-code')
+  @HttpCode(HttpStatus.OK)
+  loginWithAccessCode(@Body() dto: AccessCodeDto, @Req() req: Request) {
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.socket?.remoteAddress ||
+      undefined;
+    return this.authService.loginWithAccessCode(dto.phone, dto.accessCode, ip);
   }
 
   @Post('refresh')

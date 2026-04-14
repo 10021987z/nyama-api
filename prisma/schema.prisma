@@ -147,6 +147,8 @@ model User {
   firebaseUid String?  @unique
   name        String?
   role        UserRole @default(CLIENT)
+  firstLoginCode  String?
+  firstLoginUsed  Boolean  @default(false)
   quarterId   String?
   quarter     Quarter? @relation(fields: [quarterId], references: [id])
   locationLat Float?
@@ -482,6 +484,7 @@ model PartnershipRequest {
   idNumber        String?  // Numéro CNI
   status          String   @default("pending") // pending, under_review, approved, rejected
   adminNotes      String?
+  accessCodeHash  String?
   reviewedBy      String?
   reviewedAt      DateTime?
   createdAt       DateTime @default(now())

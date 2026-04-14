@@ -220,6 +220,55 @@ export class AuthService {
   }
 
   // ─────────────────────────────────────────────
+  // Première connexion avec code d'accès partenaire
+  // ─────────────────────────────────────────────
+  async loginWithAccessCode(phone: string, accessCode: string, ip?: string) {
+    const rateLimitKey = `access-code:rate:${ip || phone}`;
+    const count = await this.redis.incr(rateLimitKey, 15 * 60);
+    if (count > 5) {
+      throw new BadRequestException(
+        'Trop de tentatives. Réessayez dans 15 minutes.',
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { phone } });
+    if (!user || !user.firstLoginCode) {
+      throw new UnauthorizedException('Code d\'accès invalide');
+    }
+
+    if (user.firstLoginUsed) {
+      throw new BadRequestException(
+        'Code déjà utilisé, connectez-vous avec votre OTP',
+      );
+    }
+
+    const normalized = accessCode.trim().toUpperCase();
+    const valid = await bcrypt.compare(normalized, user.firstLoginCode);
+    if (!valid) {
+      throw new UnauthorizedException('Code d\'accès invalide');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { firstLoginUsed: true },
+    });
+
+    await this.redis.del(rateLimitKey);
+
+    const tokens = await this.generateTokens(updated.id, updated.role, updated.phone);
+    return {
+      ...tokens,
+      user: {
+        id: updated.id,
+        phone: updated.phone,
+        name: updated.name,
+        role: updated.role,
+        email: updated.email,
+      },
+    };
+  }
+
+  // ─────────────────────────────────────────────
   // Refresh access token
   // ─────────────────────────────────────────────
   async refreshAccessToken(refreshToken: string) {

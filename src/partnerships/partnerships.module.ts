@@ -4,8 +4,10 @@ import {
   PublicPartnershipsController,
   AdminPartnershipsController,
 } from './partnerships.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
+  imports: [NotificationsModule],
   controllers: [PublicPartnershipsController, AdminPartnershipsController],
   providers: [PartnershipsService],
   exports: [PartnershipsService],
