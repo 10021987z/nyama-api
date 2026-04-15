@@ -162,16 +162,22 @@ export class PartnershipsService {
       });
 
       if (role === UserRole.COOK) {
-        const quarter = await tx.quarter.findFirst({
+        let quarter = await tx.quarter.findFirst({
           where: {
             name: { equals: application.quarter, mode: 'insensitive' },
             city: { equals: application.city, mode: 'insensitive' },
           },
         });
         if (!quarter) {
-          throw new BadRequestException(
-            `Quartier "${application.quarter}" introuvable à ${application.city}`,
-          );
+          quarter = await tx.quarter.create({
+            data: {
+              id: this.makeQuarterId(application.city, application.quarter),
+              name: application.quarter,
+              city: application.city,
+              polygon: JSON.stringify({ type: 'Polygon', coordinates: [] }),
+              isActive: true,
+            },
+          });
         }
         await tx.cookProfile.create({
           data: {
@@ -279,6 +285,17 @@ export class PartnershipsService {
       code += ACCESS_CODE_ALPHABET[bytes[i] % ACCESS_CODE_ALPHABET.length];
     }
     return `NYAM-${code}`;
+  }
+
+  private makeQuarterId(city: string, quarter: string): string {
+    const slug = (s: string) =>
+      s
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    return `q-${slug(city)}-${slug(quarter)}`;
   }
 
   private parseVehicleType(raw?: string | null): VehicleType {
