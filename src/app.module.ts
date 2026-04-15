@@ -22,6 +22,7 @@ import { PartnersModule } from './partners/partners.module';
 import { PartnershipsModule } from './partnerships/partnerships.module';
 import { EventsModule } from './events/events.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { UploadsModule } from './uploads/uploads.module';
     PartnersModule,
     PartnershipsModule,
     UploadsModule,
+    OnboardingModule,
   ],
   controllers: [AppController],
   providers: [AppService],
