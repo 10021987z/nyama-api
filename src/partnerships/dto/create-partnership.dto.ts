@@ -38,4 +38,21 @@ export class CreatePartnershipDto {
   @IsOptional()
   @IsString()
   idNumber?: string;
+
+  // Documents KYC (URLs renvoyées par /uploads/document)
+  @IsOptional()
+  @IsString()
+  idDocumentUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  selfieUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  licenseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  insuranceUrl?: string;
 }

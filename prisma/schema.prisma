@@ -494,6 +494,22 @@ model PartnershipRequest {
   accessCodeHash  String?
   reviewedBy      String?
   reviewedAt      DateTime?
+
+  // Documents KYC livreur
+  idDocumentUrl   String?
+  selfieUrl       String?
+  licenseUrl      String?
+  insuranceUrl    String?
+
+  // Statut vérification documents: pending, verified, rejected
+  idDocumentStatus String  @default("pending")
+  selfieStatus     String  @default("pending")
+  licenseStatus    String  @default("pending")
+  insuranceStatus  String  @default("pending")
+
+  // Score KYC automatique (0-100), 25 points par document vérifié
+  kycScore        Int      @default(0)
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -656,4 +672,16 @@ model AdminAuditLog {
   details   String?
   ip        String?
   createdAt DateTime @default(now())
+}
+
+// 24. DocumentUpload — stockage base64 en BDD des pièces KYC
+model DocumentUpload {
+  id           String   @id @default(uuid())
+  data         String   // base64 du contenu
+  mimeType     String
+  size         Int
+  originalName String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
 }

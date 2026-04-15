@@ -17,6 +17,7 @@ import { PartnershipsService } from './partnerships.service';
 import { CreatePartnershipDto } from './dto/create-partnership.dto';
 import { UpdatePartnershipDto } from './dto/update-partnership.dto';
 import { QueryPartnershipsDto } from './dto/query-partnerships.dto';
+import { VerifyDocumentDto } from './dto/verify-document.dto';
 
 // ── Public route — no auth required ────────────────────────────────
 @Controller('partnerships')
@@ -58,5 +59,14 @@ export class AdminPartnershipsController {
     @CurrentUser() user: any,
   ) {
     return this.service.update(id, dto, user.id);
+  }
+
+  @Patch(':id/verify-document')
+  verifyDocument(
+    @Param('id') id: string,
+    @Body() dto: VerifyDocumentDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.service.verifyDocument(id, dto.document, dto.status, user.id);
   }
 }

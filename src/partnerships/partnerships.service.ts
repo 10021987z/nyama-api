@@ -42,6 +42,10 @@ export class PartnershipsService {
         quarter: dto.quarter,
         vehicleType: dto.vehicleType,
         idNumber: dto.idNumber,
+        idDocumentUrl: dto.idDocumentUrl,
+        selfieUrl: dto.selfieUrl,
+        licenseUrl: dto.licenseUrl,
+        insuranceUrl: dto.insuranceUrl,
       },
     });
 
@@ -131,6 +135,90 @@ export class PartnershipsService {
     });
   }
 
+  async verifyDocument(
+    id: string,
+    document: 'idDocument' | 'selfie' | 'license' | 'insurance',
+    status: 'verified' | 'rejected' | 'pending',
+    adminId: string,
+  ) {
+    const application = await this.prisma.partnershipRequest.findUnique({
+      where: { id },
+    });
+    if (!application) throw new NotFoundException('Candidature introuvable');
+
+    const urlField = `${document}Url` as const;
+    const statusField = `${document}Status` as const;
+
+    if (!application[urlField]) {
+      throw new BadRequestException(
+        `Aucun document "${document}" fourni sur cette candidature`,
+      );
+    }
+
+    const dataUpdate = {
+      [statusField]: status,
+      reviewedBy: adminId,
+      reviewedAt: new Date(),
+    } as Prisma.PartnershipRequestUpdateInput;
+
+    const updated = await this.prisma.partnershipRequest.update({
+      where: { id },
+      data: dataUpdate,
+    });
+
+    // Recalcule kycScore: 25 points par document vérifié (max 100)
+    const provided: Array<'idDocument' | 'selfie' | 'license' | 'insurance'> = [
+      'idDocument',
+      'selfie',
+      'license',
+      'insurance',
+    ].filter((d) => !!updated[`${d}Url` as keyof typeof updated]) as Array<
+      'idDocument' | 'selfie' | 'license' | 'insurance'
+    >;
+    const verifiedCount = provided.filter(
+      (d) => updated[`${d}Status` as keyof typeof updated] === 'verified',
+    ).length;
+    const kycScore = verifiedCount * 25;
+
+    return this.prisma.partnershipRequest.update({
+      where: { id },
+      data: { kycScore },
+    });
+  }
+
+  private assertDocumentsVerified(app: {
+    type: string;
+    idDocumentUrl: string | null;
+    selfieUrl: string | null;
+    licenseUrl: string | null;
+    insuranceUrl: string | null;
+    idDocumentStatus: string;
+    selfieStatus: string;
+    licenseStatus: string;
+    insuranceStatus: string;
+  }) {
+    // Liste des documents requis selon le type de partenaire
+    const required: Array<'idDocument' | 'selfie' | 'license' | 'insurance'> =
+      app.type === 'livreur'
+        ? ['idDocument', 'selfie', 'license', 'insurance']
+        : ['idDocument', 'selfie'];
+
+    for (const doc of required) {
+      const url = app[`${doc}Url` as const];
+      const status = app[`${doc}Status` as const];
+      if (!url) {
+        throw new BadRequestException(
+          `Document "${doc}" manquant — impossible d'approuver`,
+        );
+      }
+      if (status !== 'verified') {
+        throw new BadRequestException(
+          `Document "${doc}" non vérifié (statut: ${status}) — vérifiez tous les documents avant d'approuver`,
+        );
+      }
+    }
+  }
+
   async approve(id: string, adminId: string, adminNotes?: string) {
     try {
       const application = await this.prisma.partnershipRequest.findUnique({
@@ -140,6 +228,8 @@ export class PartnershipsService {
       if (application.status === 'approved') {
         throw new ConflictException('Candidature déjà approuvée');
       }
+
+      this.assertDocumentsVerified(application);
 
       const role: UserRole =
         application.type === 'cuisiniere' ? UserRole.COOK : UserRole.RIDER;

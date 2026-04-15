@@ -21,6 +21,7 @@ import { DisputesModule } from './disputes/disputes.module';
 import { PartnersModule } from './partners/partners.module';
 import { PartnershipsModule } from './partnerships/partnerships.module';
 import { EventsModule } from './events/events.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { EventsModule } from './events/events.module';
     DisputesModule,
     PartnersModule,
     PartnershipsModule,
+    UploadsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

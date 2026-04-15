@@ -18,8 +18,8 @@ keys/
 # Prisma generated
 /generated/prisma
 
-# Uploads
-uploads/
+# Uploads (runtime files at repo root only)
+/uploads/
 
 # Logs
 *.log
