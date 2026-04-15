@@ -45,18 +45,14 @@ export class PartnershipsService {
       },
     });
 
-    this.email.sendApplicationReceivedEmail(
-      created.email,
-      `${created.firstName} ${created.lastName}`,
-    );
+    await this.email.sendApplicationReceived(created.email, created.firstName);
 
-    this.whatsapp.sendApplicationReceived(
+    const whatsappUrl = this.whatsapp.generateReceivedWhatsAppUrl(
       created.phone,
       created.firstName,
-      created.id,
     );
 
-    return created;
+    return { ...created, whatsappUrl };
   }
 
   async findAll(query: QueryPartnershipsDto) {
@@ -281,14 +277,14 @@ export class PartnershipsService {
         return { user, application: updated };
       });
 
-      this.email.sendPartnerApprovalEmail(
+      await this.email.sendPartnerApproved(
         application.email,
-        fullName,
+        application.firstName,
         accessCode,
         application.type,
       );
 
-      const whatsappLink = this.whatsapp.sendApproval(
+      const whatsappUrl = this.whatsapp.generateApprovalWhatsAppUrl(
         application.phone,
         application.firstName,
         accessCode,
@@ -305,7 +301,7 @@ export class PartnershipsService {
           role: result.user.role,
         },
         accessCode,
-        whatsappLink,
+        whatsappUrl,
       };
     } catch (error) {
       if (
@@ -342,19 +338,19 @@ export class PartnershipsService {
       },
     });
 
-    this.email.sendPartnerRejectionEmail(
+    await this.email.sendPartnerRejected(
       application.email,
-      `${application.firstName} ${application.lastName}`.trim(),
+      application.firstName,
       reason,
     );
 
-    this.whatsapp.sendRejection(
+    const whatsappUrl = this.whatsapp.generateRejectionWhatsAppUrl(
       application.phone,
       application.firstName,
       reason,
     );
 
-    return updated;
+    return { ...updated, whatsappUrl };
   }
 
   async getStats() {
