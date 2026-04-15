@@ -154,16 +154,35 @@ export class PartnershipsService {
       const fullName = `${application.firstName} ${application.lastName}`.trim();
 
       const result = await this.prisma.$transaction(async (tx) => {
-        const existingUser = await tx.user.findUnique({
+        const existingByPhone = await tx.user.findUnique({
           where: { phone: application.phone },
         });
+        const existingByEmail = application.email
+          ? await tx.user.findUnique({
+              where: { email: application.email },
+            })
+          : null;
 
-        const user = existingUser
+        // Re-use the account matched by phone first (it's the partner's
+        // account). If the email on the application belongs to a
+        // different user, we must not overwrite it — unique constraint.
+        const reused = existingByPhone ?? existingByEmail;
+        const emailTakenByOther =
+          !!existingByEmail &&
+          (!reused || existingByEmail.id !== reused.id) &&
+          existingByEmail.id !== existingByPhone?.id;
+
+        const user = reused
           ? await tx.user.update({
-              where: { id: existingUser.id },
+              where: { id: reused.id },
               data: {
-                name: existingUser.name ?? fullName,
-                email: existingUser.email ?? application.email ?? undefined,
+                name: reused.name ?? fullName,
+                // Only touch email if no conflict with another account.
+                email:
+                  reused.email ??
+                  (emailTakenByOther
+                    ? undefined
+                    : (application.email ?? undefined)),
                 role,
                 firstLoginCode: accessCodeHash,
                 firstLoginUsed: false,
@@ -172,7 +191,9 @@ export class PartnershipsService {
           : await tx.user.create({
               data: {
                 phone: application.phone,
-                email: application.email ?? undefined,
+                email: emailTakenByOther
+                  ? undefined
+                  : (application.email ?? undefined),
                 name: fullName,
                 role,
                 firstLoginCode: accessCodeHash,
