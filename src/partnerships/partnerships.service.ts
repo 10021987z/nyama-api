@@ -1,5 +1,7 @@
 import {
   Injectable,
+  InternalServerErrorException,
+  Logger,
   NotFoundException,
   BadRequestException,
   ConflictException,
@@ -9,6 +11,7 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../notifications/email.service';
+import { WhatsappService } from '../notifications/whatsapp.service';
 import { CreatePartnershipDto } from './dto/create-partnership.dto';
 import { UpdatePartnershipDto } from './dto/update-partnership.dto';
 import { QueryPartnershipsDto } from './dto/query-partnerships.dto';
@@ -17,9 +20,12 @@ const ACCESS_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 @Injectable()
 export class PartnershipsService {
+  private readonly logger = new Logger(PartnershipsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly whatsapp: WhatsappService,
   ) {}
 
   async create(dto: CreatePartnershipDto) {
@@ -42,6 +48,12 @@ export class PartnershipsService {
     this.email.sendApplicationReceivedEmail(
       created.email,
       `${created.firstName} ${created.lastName}`,
+    );
+
+    this.whatsapp.sendApplicationReceived(
+      created.phone,
+      created.firstName,
+      created.id,
     );
 
     return created;
@@ -124,122 +136,173 @@ export class PartnershipsService {
   }
 
   async approve(id: string, adminId: string, adminNotes?: string) {
-    const application = await this.prisma.partnershipRequest.findUnique({
-      where: { id },
-    });
-    if (!application) throw new NotFoundException('Candidature introuvable');
-    if (application.status === 'approved') {
-      throw new ConflictException('Candidature déjà approuvée');
-    }
-
-    const existingUser = await this.prisma.user.findUnique({
-      where: { phone: application.phone },
-    });
-    if (existingUser) {
-      throw new ConflictException(
-        'Un compte existe déjà pour ce numéro de téléphone',
-      );
-    }
-
-    const role: UserRole =
-      application.type === 'cuisiniere' ? UserRole.COOK : UserRole.RIDER;
-
-    const accessCode = this.generateAccessCode();
-    const accessCodeHash = await bcrypt.hash(accessCode, 10);
-
-    const fullName = `${application.firstName} ${application.lastName}`.trim();
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          phone: application.phone,
-          email: application.email ?? undefined,
-          name: fullName,
-          role,
-          firstLoginCode: accessCodeHash,
-          firstLoginUsed: false,
-        },
+    try {
+      const application = await this.prisma.partnershipRequest.findUnique({
+        where: { id },
       });
+      if (!application) throw new NotFoundException('Candidature introuvable');
+      if (application.status === 'approved') {
+        throw new ConflictException('Candidature déjà approuvée');
+      }
 
-      if (role === UserRole.COOK) {
-        let quarter = await tx.quarter.findFirst({
-          where: {
-            name: { equals: application.quarter, mode: 'insensitive' },
-            city: { equals: application.city, mode: 'insensitive' },
-          },
+      const role: UserRole =
+        application.type === 'cuisiniere' ? UserRole.COOK : UserRole.RIDER;
+
+      const accessCode = this.generateAccessCode();
+      const accessCodeHash = await bcrypt.hash(accessCode, 10);
+
+      const fullName = `${application.firstName} ${application.lastName}`.trim();
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        const existingUser = await tx.user.findUnique({
+          where: { phone: application.phone },
         });
-        if (!quarter) {
-          quarter = await tx.quarter.create({
-            data: {
-              id: this.makeQuarterId(application.city, application.quarter),
-              name: application.quarter,
-              city: application.city,
-              polygon: JSON.stringify({ type: 'Polygon', coordinates: [] }),
+
+        const user = existingUser
+          ? await tx.user.update({
+              where: { id: existingUser.id },
+              data: {
+                name: existingUser.name ?? fullName,
+                email: existingUser.email ?? application.email ?? undefined,
+                role,
+                firstLoginCode: accessCodeHash,
+                firstLoginUsed: false,
+              },
+            })
+          : await tx.user.create({
+              data: {
+                phone: application.phone,
+                email: application.email ?? undefined,
+                name: fullName,
+                role,
+                firstLoginCode: accessCodeHash,
+                firstLoginUsed: false,
+              },
+            });
+
+        if (role === UserRole.COOK) {
+          let quarter = await tx.quarter.findFirst({
+            where: {
+              name: { equals: application.quarter, mode: 'insensitive' },
+              city: { equals: application.city, mode: 'insensitive' },
+            },
+          });
+          if (!quarter) {
+            quarter = await tx.quarter.create({
+              data: {
+                id: this.makeQuarterId(application.city, application.quarter),
+                name: application.quarter,
+                city: application.city,
+                polygon: JSON.stringify({ type: 'Polygon', coordinates: [] }),
+                isActive: true,
+              },
+            });
+          }
+
+          const specialty = JSON.stringify(
+            application.description ? [application.description] : [],
+          );
+
+          await tx.cookProfile.upsert({
+            where: { userId: user.id },
+            update: {
+              displayName: application.companyName || fullName,
+              specialty,
+              description: application.description ?? undefined,
+              quarterId: quarter.id,
+              isVerified: true,
               isActive: true,
+              momoPhone: application.phone,
+            },
+            create: {
+              userId: user.id,
+              displayName: application.companyName || fullName,
+              specialty,
+              description: application.description ?? undefined,
+              quarterId: quarter.id,
+              locationLat: 0,
+              locationLng: 0,
+              isVerified: true,
+              isActive: true,
+              momoPhone: application.phone,
+            },
+          });
+        } else {
+          const vehicle = this.parseVehicleType(application.vehicleType);
+          await tx.riderProfile.upsert({
+            where: { userId: user.id },
+            update: {
+              vehicleType: vehicle,
+              isVerified: true,
+              momoPhone: application.phone,
+            },
+            create: {
+              userId: user.id,
+              vehicleType: vehicle,
+              isVerified: true,
+              isOnline: false,
+              momoPhone: application.phone,
             },
           });
         }
-        await tx.cookProfile.create({
-          data: {
-            userId: user.id,
-            displayName: application.companyName || fullName,
-            specialty: JSON.stringify(
-              application.description ? [application.description] : [],
-            ),
-            description: application.description ?? undefined,
-            quarterId: quarter.id,
-            locationLat: 0,
-            locationLng: 0,
-            isVerified: true,
-            isActive: true,
-            momoPhone: application.phone,
-          },
-        });
-      } else {
-        const vehicle = this.parseVehicleType(application.vehicleType);
-        await tx.riderProfile.create({
-          data: {
-            userId: user.id,
-            vehicleType: vehicle,
-            isVerified: true,
-            isOnline: false,
-            momoPhone: application.phone,
-          },
-        });
-      }
 
-      const updated = await tx.partnershipRequest.update({
-        where: { id },
-        data: {
-          status: 'approved',
-          accessCodeHash,
-          adminNotes: adminNotes ?? application.adminNotes,
-          reviewedBy: adminId,
-          reviewedAt: new Date(),
-        },
+        const updated = await tx.partnershipRequest.update({
+          where: { id },
+          data: {
+            status: 'approved',
+            accessCodeHash,
+            adminNotes: adminNotes ?? application.adminNotes,
+            reviewedBy: adminId,
+            reviewedAt: new Date(),
+          },
+        });
+
+        return { user, application: updated };
       });
 
-      return { user, application: updated };
-    });
+      this.email.sendPartnerApprovalEmail(
+        application.email,
+        fullName,
+        accessCode,
+        application.type,
+      );
 
-    this.email.sendPartnerApprovalEmail(
-      application.email,
-      fullName,
-      accessCode,
-      application.type,
-    );
+      const whatsappLink = this.whatsapp.sendApproval(
+        application.phone,
+        application.firstName,
+        accessCode,
+        application.type,
+      );
 
-    return {
-      application: result.application,
-      user: {
-        id: result.user.id,
-        phone: result.user.phone,
-        email: result.user.email,
-        name: result.user.name,
-        role: result.user.role,
-      },
-      accessCode,
-    };
+      return {
+        application: result.application,
+        user: {
+          id: result.user.id,
+          phone: result.user.phone,
+          email: result.user.email,
+          name: result.user.name,
+          role: result.user.role,
+        },
+        accessCode,
+        whatsappLink,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ConflictException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      const err = error as Error;
+      this.logger.error(
+        `Erreur approbation partenaire ${id}: ${err.message}`,
+        err.stack,
+      );
+      throw new InternalServerErrorException(
+        `Impossible d'approuver: ${err.message}`,
+      );
+    }
   }
 
   async reject(id: string, adminId: string, reason: string) {
@@ -261,6 +324,12 @@ export class PartnershipsService {
     this.email.sendPartnerRejectionEmail(
       application.email,
       `${application.firstName} ${application.lastName}`.trim(),
+      reason,
+    );
+
+    this.whatsapp.sendRejection(
+      application.phone,
+      application.firstName,
       reason,
     );
 
