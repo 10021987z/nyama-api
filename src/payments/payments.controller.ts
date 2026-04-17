@@ -12,11 +12,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { NotchPayService } from './notchpay.service';
-import {
-  NotchPayWebhookPayload,
-  PaymentsService,
-} from './payments.service';
+import { PaymentsService } from './payments.service';
+import { InitiatePaymentDto } from './dto/initiate-payment.dto';
+import { NotchPayWebhookDto } from './dto/webhook.dto';
 
 @Controller('payments')
 export class PaymentsController {
@@ -30,50 +30,54 @@ export class PaymentsController {
   @Post('initiate')
   @UseGuards(JwtAuthGuard)
   async initiate(
-    @Body()
-    body: { orderId: string; amount: number; phone: string; method: string },
+    @CurrentUser() user: { id: string },
+    @Body() dto: InitiatePaymentDto,
   ) {
-    const result = await this.notchPayService.initiatePayment(
-      body.amount,
-      body.phone,
-      body.orderId,
-      body.method,
-    );
-    // Persist provider reference so the webhook can correlate
-    if (result.reference) {
-      await this.paymentsService
-        .attachProviderRef(body.orderId, result.reference)
-        .catch((e) =>
-          this.logger.warn(`attachProviderRef failed: ${e?.message}`),
-        );
-    }
-    return result;
+    return this.paymentsService.initiate(user.id, dto);
   }
 
-  @Get('verify/:reference')
-  async verify(@Param('reference') reference: string) {
-    return this.notchPayService.verifyPayment(reference);
-  }
-
-  @Post('webhook/notchpay')
+  @Post('webhook')
   @HttpCode(HttpStatus.OK)
   async webhook(
     @Req() req: any,
-    @Body() body: NotchPayWebhookPayload,
+    @Body() body: NotchPayWebhookDto,
     @Headers('x-notch-signature') signature?: string,
   ) {
-    // Raw body is attached by main.ts bodyParser config; fall back to JSON
     const rawBody: string =
       (req as any).rawBody?.toString?.() ?? JSON.stringify(body);
     try {
       this.paymentsService.verifySignature(rawBody, signature);
     } catch (err: any) {
       this.logger.warn(`Webhook signature rejected: ${err.message}`);
-      return { ok: false, reason: 'invalid_signature' };
+      return { success: false, reason: 'invalid_signature' };
     }
     this.logger.log(
       `Webhook received: event=${body?.event} ref=${body?.data?.reference}`,
     );
     return this.paymentsService.handleWebhook(body);
+  }
+
+  @Get('verify/:reference')
+  @UseGuards(JwtAuthGuard)
+  async verify(@Param('reference') reference: string) {
+    return this.notchPayService.verifyPayment(reference);
+  }
+
+  @Get('order/:orderId')
+  @UseGuards(JwtAuthGuard)
+  async getByOrder(
+    @CurrentUser() user: { id: string },
+    @Param('orderId') orderId: string,
+  ) {
+    return this.paymentsService.getByOrderId(orderId, user.id);
+  }
+
+  @Get(':paymentId')
+  @UseGuards(JwtAuthGuard)
+  async getById(
+    @CurrentUser() user: { id: string },
+    @Param('paymentId') paymentId: string,
+  ) {
+    return this.paymentsService.getById(paymentId, user.id);
   }
 }

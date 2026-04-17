@@ -310,7 +310,10 @@ model Payment {
   status          PaymentStatus @default(PENDING)
   amountXaf       Int
   currency        String        @default("XAF")
+  phone           String?
   providerRef     String?
+  notchpayTrxRef  String?
+  paymentUrl      String?
   providerPayload String? // JSON sérialisé
   paidAt          DateTime?
   failureReason   String?
