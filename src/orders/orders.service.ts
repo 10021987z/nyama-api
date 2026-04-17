@@ -40,9 +40,9 @@ export class OrdersService {
   ) {}
 
   async create(clientId: string, dto: CreateOrderDto) {
-    // Vérifier que le cook existe et est actif
+    // Vérifier que le cook existe et est actif (dto.cookId = CookProfile.id)
     const cookProfile = await this.prisma.cookProfile.findUnique({
-      where: { userId: dto.cookId },
+      where: { id: dto.cookId },
     });
     if (!cookProfile || !cookProfile.isActive) {
       throw new NotFoundException('Cuisinière introuvable ou inactive');
@@ -86,7 +86,7 @@ export class OrdersService {
     const order = await this.prisma.order.create({
       data: {
         clientId,
-        cookId: dto.cookId,
+        cookId: cookProfile.userId,
         totalXaf,
         deliveryFeeXaf: DELIVERY_FEE_XAF,
         paymentMethod: dto.paymentMethod,
@@ -110,7 +110,7 @@ export class OrdersService {
     });
 
     // WebSocket : notifier la cuisinière en temps réel
-    this.eventsService.notifyCook(dto.cookId, 'order:new', {
+    this.eventsService.notifyCook(cookProfile.userId, 'order:new', {
       orderId: order.id,
       totalXaf: order.totalXaf,
       deliveryAddress: order.deliveryAddress,
