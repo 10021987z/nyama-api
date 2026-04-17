@@ -115,6 +115,37 @@ export class CooksService {
     });
   }
 
+  async acceptOrder(orderId: string, cookUserId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (order.cookId !== cookUserId)
+      throw new ForbiddenException('Cette commande ne vous appartient pas');
+
+    let targetStatus: OrderStatus;
+    if (order.status === OrderStatus.PENDING) {
+      targetStatus = OrderStatus.CONFIRMED;
+    } else if (order.status === OrderStatus.CONFIRMED) {
+      targetStatus = OrderStatus.PREPARING;
+    } else {
+      throw new BadRequestException(
+        `Impossible d'accepter une commande au statut ${order.status}`,
+      );
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: targetStatus, acceptedAt: new Date() },
+      include: ORDER_INCLUDE,
+    });
+
+    this.eventsService.notifyClient(order.clientId, 'order:status', {
+      orderId,
+      status: targetStatus,
+    });
+
+    return updated;
+  }
+
   async transitionOrder(
     orderId: string,
     cookUserId: string,

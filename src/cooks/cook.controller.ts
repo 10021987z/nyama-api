@@ -52,7 +52,7 @@ export class CookController {
   @Patch('orders/:id/accept')
   @HttpCode(HttpStatus.OK)
   acceptOrder(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.cooksService.transitionOrder(id, user.id, OrderStatus.CONFIRMED);
+    return this.cooksService.acceptOrder(id, user.id);
   }
 
   @Patch('orders/:id/preparing')
