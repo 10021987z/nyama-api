@@ -136,10 +136,15 @@ export class PaymentsService {
    * Re-poll NotchPay for a pending payment that hasn't moved in >30s.
    * Webhooks are the primary update path; this is a safety net for clients
    * polling the GET endpoint when the webhook is delayed or lost.
+   * Also self-heals Order rows that drifted out of sync with a terminal Payment.
    */
   private async refreshIfStale(payment: any) {
+    if (payment.status !== PaymentStatus.PENDING) {
+      await this.ensureOrderInSync(payment.orderId, payment.status);
+      return this.prisma.payment.findUnique({ where: { id: payment.id } });
+    }
+
     if (
-      payment.status !== PaymentStatus.PENDING ||
       !payment.providerRef ||
       Date.now() - new Date(payment.updatedAt).getTime() < STALE_PENDING_MS
     ) {
@@ -163,6 +168,60 @@ export class PaymentsService {
     } catch (err: any) {
       this.logger.warn(`refreshIfStale failed ${payment.id}: ${err?.message}`);
       return payment;
+    }
+  }
+
+  /**
+   * Ensure the Order row reflects the Payment terminal status.
+   * Used to heal drift when Payment was flipped without updating Order
+   * (manual DB edit, historical code path, or interrupted webhook).
+   */
+  private async ensureOrderInSync(
+    orderId: string,
+    paymentStatus: PaymentStatus,
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        paymentStatus: true,
+        clientId: true,
+        cookId: true,
+        totalXaf: true,
+      },
+    });
+    if (!order) return;
+    if (order.paymentStatus === paymentStatus) return;
+
+    if (paymentStatus === PaymentStatus.SUCCESS) {
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          paymentStatus: PaymentStatus.SUCCESS,
+          status: OrderStatus.CONFIRMED,
+          acceptedAt: new Date(),
+        },
+      });
+      this.events.notifyClient(order.clientId, 'payment:updated', {
+        orderId,
+        status: paymentStatus,
+      });
+      this.events.notifyCook(order.cookId, 'order:new', {
+        orderId,
+        totalXaf: order.totalXaf,
+      });
+      this.logger.log(
+        `Order ${orderId} synced to CONFIRMED/PAID from terminal Payment`,
+      );
+    } else if (paymentStatus === PaymentStatus.FAILED) {
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: { paymentStatus: PaymentStatus.FAILED },
+      });
+      this.events.notifyClient(order.clientId, 'payment:updated', {
+        orderId,
+        status: paymentStatus,
+      });
+      this.events.notifyCook(order.cookId, 'payment:failed', { orderId });
     }
   }
 
@@ -280,6 +339,7 @@ export class PaymentsService {
           data: {
             paymentStatus: PaymentStatus.SUCCESS,
             status: OrderStatus.CONFIRMED,
+            acceptedAt: new Date(),
           },
         });
       } else {
