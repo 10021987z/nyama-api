@@ -80,4 +80,10 @@ export class PaymentsController {
   ) {
     return this.paymentsService.getById(paymentId, user.id);
   }
+
+  @Post(':paymentId/test-complete')
+  @UseGuards(JwtAuthGuard)
+  async testComplete(@Param('paymentId') paymentId: string) {
+    return this.paymentsService.testComplete(paymentId);
+  }
 }

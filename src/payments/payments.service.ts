@@ -370,6 +370,46 @@ export class PaymentsService {
     }
   }
 
+  /**
+   * Sandbox-only shortcut that bypasses NotchPay and flips a Payment to SUCCESS.
+   * Gated by NOTCHPAY_PUBLIC_KEY containing "test" or NODE_ENV !== 'production'.
+   */
+  async testComplete(paymentId: string) {
+    const publicKey = this.config.get<string>('NOTCHPAY_PUBLIC_KEY') ?? '';
+    const nodeEnv = this.config.get<string>('NODE_ENV') ?? 'development';
+    const isSandbox =
+      publicKey.toLowerCase().includes('test') || nodeEnv !== 'production';
+    if (!isSandbox) {
+      throw new ForbiddenException(
+        'test-complete est désactivé en production',
+      );
+    }
+
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+    });
+    if (!payment) throw new NotFoundException('Paiement introuvable');
+
+    if (payment.status === PaymentStatus.SUCCESS) {
+      await this.ensureOrderInSync(payment.orderId, PaymentStatus.SUCCESS);
+      return this.prisma.payment.findUnique({ where: { id: paymentId } });
+    }
+
+    await this.applyTerminalStatus(
+      payment.id,
+      payment.orderId,
+      PaymentStatus.SUCCESS,
+      {
+        providerPayload: JSON.stringify({ test: 'forced completion' }),
+        failureReason: null,
+      },
+    );
+    this.logger.log(
+      `Payment ${paymentId} forced to SUCCESS via test-complete (order=${payment.orderId})`,
+    );
+    return this.prisma.payment.findUnique({ where: { id: paymentId } });
+  }
+
   /** Retained for backwards compatibility with existing callers. */
   async attachProviderRef(orderId: string, reference: string) {
     const payment = await this.prisma.payment.findUnique({
