@@ -34,6 +34,11 @@ export class EventsService {
     this.server?.to(`rider:${riderUserId}`).emit(event, data);
   }
 
+  /** Émet un événement vers la room d'une commande (chat cuisinière ↔ livreur). */
+  emitToOrderRoom(orderId: string, event: string, data: unknown): void {
+    this.server?.to(`order-${orderId}`).emit(event, data);
+  }
+
   /**
    * Notifie les livreurs disponibles d'une nouvelle commande READY.
    * Si quarterId fourni → room du quartier, sinon → tous les livreurs.

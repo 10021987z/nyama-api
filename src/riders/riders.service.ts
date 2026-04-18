@@ -7,6 +7,7 @@ import {
 import { DeliveryStatus, OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryEarningsDto } from './dto/query-earnings.dto';
+import { SendOrderMessageDto } from './dto/send-order-message.dto';
 import { EventsService } from '../events/events.service';
 
 // Transitions valides pour le livreur
@@ -220,5 +221,59 @@ export class RidersService {
     });
     if (!profile) throw new NotFoundException('Profil livreur introuvable');
     return profile;
+  }
+
+  // ─── CHAT RIDER ↔ COOK ───────────────────────────────────
+
+  /** Vérifie que le livreur est assigné à la commande. */
+  private async assertRiderAssignedToOrder(orderId: string, riderUserId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, riderId: true },
+    });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (order.riderId !== riderUserId)
+      throw new ForbiddenException('Cette commande ne vous est pas assignée');
+    return order;
+  }
+
+  async listOrderMessagesAsRider(orderId: string, riderUserId: string) {
+    await this.assertRiderAssignedToOrder(orderId, riderUserId);
+    return this.prisma.orderMessage.findMany({
+      where: { orderId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        senderId: true,
+        senderRole: true,
+        text: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  async postOrderMessageAsRider(
+    orderId: string,
+    riderUserId: string,
+    dto: SendOrderMessageDto,
+  ) {
+    await this.assertRiderAssignedToOrder(orderId, riderUserId);
+    const message = await this.prisma.orderMessage.create({
+      data: {
+        orderId,
+        senderId: riderUserId,
+        senderRole: 'RIDER',
+        text: dto.text,
+      },
+      select: {
+        id: true,
+        senderId: true,
+        senderRole: true,
+        text: true,
+        createdAt: true,
+      },
+    });
+    this.eventsService.emitToOrderRoom(orderId, 'message:new', { ...message, orderId });
+    return message;
   }
 }

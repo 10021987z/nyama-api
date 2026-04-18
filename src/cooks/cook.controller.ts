@@ -21,6 +21,9 @@ import { QueryCookOrdersDto } from './dto/query-cook-orders.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
+import { SetAvailabilityDto } from './dto/set-availability.dto';
+import { SetRushDto } from './dto/set-rush.dto';
+import { SendOrderMessageDto } from './dto/send-order-message.dto';
 
 interface AuthUser {
   id: string;
@@ -105,5 +108,61 @@ export class CookController {
   @HttpCode(HttpStatus.OK)
   deleteMenuItem(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.cooksService.softDeleteMenuItem(id, user.id);
+  }
+
+  @Patch('menu-items/:id/availability')
+  @HttpCode(HttpStatus.OK)
+  setMenuItemAvailability(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SetAvailabilityDto,
+  ) {
+    return this.cooksService.setMenuItemAvailability(id, user.id, dto);
+  }
+
+  // ─── Stats & Rush ────────────────────────────────────────
+
+  @Get('stats/today')
+  getStatsToday(@CurrentUser() user: AuthUser) {
+    return this.cooksService.getStatsToday(user.id);
+  }
+
+  @Get('stats/weekly')
+  getStatsWeekly(@CurrentUser() user: AuthUser) {
+    return this.cooksService.getStatsWeekly(user.id);
+  }
+
+  @Get('orders/prep-time-estimate')
+  getPrepTimeEstimate(@CurrentUser() user: AuthUser) {
+    return this.cooksService.getPrepTimeEstimate(user.id);
+  }
+
+  @Patch('status/rush')
+  @HttpCode(HttpStatus.OK)
+  setRushStatus(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SetRushDto,
+  ) {
+    return this.cooksService.setRushStatus(user.id, dto);
+  }
+
+  // ─── Chat cuisinière ↔ livreur ──────────────────────────
+
+  @Get('orders/:orderId/messages')
+  listOrderMessages(
+    @Param('orderId') orderId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.cooksService.listOrderMessagesAsCook(orderId, user.id);
+  }
+
+  @Post('orders/:orderId/messages')
+  @HttpCode(HttpStatus.CREATED)
+  postOrderMessage(
+    @Param('orderId') orderId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SendOrderMessageDto,
+  ) {
+    return this.cooksService.postOrderMessageAsCook(orderId, user.id, dto);
   }
 }

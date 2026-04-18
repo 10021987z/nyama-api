@@ -115,4 +115,33 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     await this.eventsService.updateRiderLocation(user.id, payload.lat, payload.lng);
   }
+
+  /**
+   * Autorise le cuisinier ou le livreur d'une commande à rejoindre la room
+   * de chat `order-<orderId>`. Les clients ne sont pas admis dans cette room
+   * (ils ont leur propre canal `client:<id>`).
+   */
+  @SubscribeMessage('join:order')
+  async handleJoinOrder(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { orderId: string },
+  ) {
+    const user = client.data.user as AuthenticatedUser | undefined;
+    if (!user) return;
+    const orderId = payload?.orderId;
+    if (!orderId || typeof orderId !== 'string') return;
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, cookId: true, riderId: true },
+    });
+    if (!order) return;
+
+    const isCook = user.role === UserRole.COOK && order.cookId === user.id;
+    const isRider = user.role === UserRole.RIDER && order.riderId === user.id;
+    if (!isCook && !isRider) return;
+
+    await client.join(`order-${orderId}`);
+    client.emit('joined:order', { orderId });
+  }
 }

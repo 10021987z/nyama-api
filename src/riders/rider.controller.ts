@@ -18,6 +18,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RidersService } from './riders.service';
 import { UpdateDeliveryStatusDto } from './dto/update-delivery-status.dto';
 import { QueryEarningsDto } from './dto/query-earnings.dto';
+import { SendOrderMessageDto } from './dto/send-order-message.dto';
 
 interface AuthUser {
   id: string;
@@ -59,5 +60,25 @@ export class RiderController {
   @Get('earnings')
   getEarnings(@CurrentUser() user: AuthUser, @Query() query: QueryEarningsDto) {
     return this.ridersService.getEarnings(user.id, query);
+  }
+
+  // ─── Chat livreur ↔ cuisinière ──────────────────────────
+
+  @Get('orders/:orderId/messages')
+  listOrderMessages(
+    @Param('orderId') orderId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.ridersService.listOrderMessagesAsRider(orderId, user.id);
+  }
+
+  @Post('orders/:orderId/messages')
+  @HttpCode(HttpStatus.CREATED)
+  postOrderMessage(
+    @Param('orderId') orderId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SendOrderMessageDto,
+  ) {
+    return this.ridersService.postOrderMessageAsRider(orderId, user.id, dto);
   }
 }

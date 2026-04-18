@@ -11,7 +11,22 @@ import { QueryCooksDto } from './dto/query-cooks.dto';
 import { QueryCookOrdersDto } from './dto/query-cook-orders.dto';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
+import { SetAvailabilityDto } from './dto/set-availability.dto';
+import { SetRushDto } from './dto/set-rush.dto';
+import { SendOrderMessageDto } from './dto/send-order-message.dto';
 import { EventsService } from '../events/events.service';
+
+// Les statuts où la commande est "active" côté cuisinière (compte pour le calcul
+// de la charge / temps de préparation estimé).
+const ACTIVE_COOK_STATUSES: OrderStatus[] = [
+  OrderStatus.CONFIRMED,
+  OrderStatus.PREPARING,
+  OrderStatus.READY,
+];
+
+const DEFAULT_PREP_TIME_MIN = 15;
+const RUSH_DEFAULT_MINUTES = 15;
+const RUSH_PREP_TIME_BONUS_MIN = 30;
 
 // Transitions valides pour une cuisinière
 const COOK_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -58,7 +73,7 @@ export class CooksService {
     };
     const orderBy = sortMap[dto.sort ?? 'rating'];
 
-    const [total, data] = await Promise.all([
+    const [total, rawData] = await Promise.all([
       this.prisma.cookProfile.count({ where }),
       this.prisma.cookProfile.findMany({
         where,
@@ -68,6 +83,26 @@ export class CooksService {
         take,
       }),
     ]);
+
+    // Décoration rush : si la cuisinière est en rush et que rushUntil > now,
+    // on expose `isRush: true` et on ajoute +30 min au temps de prépa estimé.
+    // Sinon on renvoie `isRush: false` et le temps base. L'app cliente peut
+    // afficher "Très demandé - délai 45min" en se basant sur ce flag.
+    const now = new Date();
+    const data = rawData.map((c) => {
+      const baseTime = c.prepTimeAvgMin ?? DEFAULT_PREP_TIME_MIN;
+      const rushActive =
+        c.isRush && c.rushUntil !== null && c.rushUntil > now;
+      return {
+        ...c,
+        isRush: rushActive,
+        rushReason: rushActive ? c.rushReason : null,
+        rushUntil: rushActive ? c.rushUntil : null,
+        estimatedPrepTimeMin: rushActive
+          ? baseTime + RUSH_PREP_TIME_BONUS_MIN
+          : baseTime,
+      };
+    });
 
     return paginatedResult(data, total, page, limit);
   }
@@ -308,5 +343,256 @@ export class CooksService {
       where: { id: itemId },
       data: { isAvailable: false },
     });
+  }
+
+  async setMenuItemAvailability(
+    itemId: string,
+    cookUserId: string,
+    dto: SetAvailabilityDto,
+  ) {
+    const profile = await this.getCookProfile(cookUserId);
+    const item = await this.prisma.menuItem.findUnique({ where: { id: itemId } });
+    if (!item) throw new NotFoundException('Plat introuvable');
+    if (item.cookId !== profile.id)
+      throw new ForbiddenException('Ce plat ne vous appartient pas');
+
+    return this.prisma.menuItem.update({
+      where: { id: itemId },
+      data: {
+        isAvailable: dto.available,
+        unavailableReason: dto.available ? null : dto.reason ?? null,
+      },
+    });
+  }
+
+  // ─── STATS ───────────────────────────────────────────────
+
+  /**
+   * Renvoie le début du jour en heure locale Douala (UTC+1) exprimé en UTC.
+   * On veut "aujourd'hui à 00:00 locale" → on soustrait 1h pour que la date
+   * UTC corresponde au début du jour local.
+   */
+  private getDoualaDayStart(): Date {
+    const now = new Date();
+    const todayUtc = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0),
+    );
+    // Si on est entre 00h UTC et 01h UTC, on est encore la veille en heure
+    // locale Douala (UTC+1). Pour simplifier : début du jour local = 00h-1h UTC.
+    return new Date(todayUtc.getTime() - 60 * 60 * 1000);
+  }
+
+  /** Lundi 00:00 locale Douala de la semaine qui contient `ref`. */
+  private getDoualaWeekStart(ref: Date): Date {
+    const d = new Date(ref);
+    // getUTCDay: 0=dim, 1=lun, ... 6=sam
+    const day = d.getUTCDay();
+    const diffToMonday = (day + 6) % 7; // lundi = 0, dimanche = 6
+    const mondayUtcMidnight = new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - diffToMonday, 0, 0, 0),
+    );
+    // Début local Douala = 00h locale = 23h UTC la veille → -1h
+    return new Date(mondayUtcMidnight.getTime() - 60 * 60 * 1000);
+  }
+
+  async getStatsToday(cookUserId: string) {
+    const profile = await this.getCookProfile(cookUserId);
+    const todayStart = this.getDoualaDayStart();
+
+    const [ordersCount, deliveredToday] = await Promise.all([
+      this.prisma.order.count({
+        where: {
+          cookId: cookUserId,
+          createdAt: { gte: todayStart },
+        },
+      }),
+      this.prisma.order.findMany({
+        where: {
+          cookId: cookUserId,
+          status: OrderStatus.DELIVERED,
+          createdAt: { gte: todayStart },
+        },
+        select: { totalXaf: true },
+      }),
+    ]);
+
+    const revenueXaf = deliveredToday.reduce((sum, o) => sum + o.totalXaf, 0);
+
+    // Review n'a pas de champ date filtrable sans jointure coûteuse par cook :
+    // on renvoie la moyenne all-time depuis CookProfile.avgRating.
+    const avgRating = profile.avgRating;
+
+    const prepTimeAvg = profile.prepTimeAvgMin ?? DEFAULT_PREP_TIME_MIN;
+
+    return { ordersCount, revenueXaf, avgRating, prepTimeAvg };
+  }
+
+  async getStatsWeekly(cookUserId: string) {
+    await this.getCookProfile(cookUserId);
+
+    const now = new Date();
+    const currentWeekStart = this.getDoualaWeekStart(now);
+    const previousWeekStart = new Date(
+      currentWeekStart.getTime() - 7 * 24 * 60 * 60 * 1000,
+    );
+    const previousWeekEnd = currentWeekStart;
+
+    const computeAggregates = async (from: Date, to?: Date) => {
+      const dateFilter: Prisma.DateTimeFilter = to ? { gte: from, lt: to } : { gte: from };
+
+      const [orders, delivered, reviews] = await Promise.all([
+        this.prisma.order.count({
+          where: { cookId: cookUserId, createdAt: dateFilter },
+        }),
+        this.prisma.order.findMany({
+          where: {
+            cookId: cookUserId,
+            status: OrderStatus.DELIVERED,
+            createdAt: dateFilter,
+          },
+          select: { totalXaf: true },
+        }),
+        this.prisma.review.findMany({
+          where: {
+            createdAt: dateFilter,
+            order: { cookId: cookUserId },
+            cookRating: { not: null },
+          },
+          select: { cookRating: true },
+        }),
+      ]);
+
+      const revenue = delivered.reduce((sum, o) => sum + o.totalXaf, 0);
+      const ratings = reviews
+        .map((r) => r.cookRating)
+        .filter((v): v is number => typeof v === 'number');
+      const rating =
+        ratings.length > 0
+          ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
+          : 0;
+
+      return { orders, revenue, rating };
+    };
+
+    const [currentWeek, previousWeek] = await Promise.all([
+      computeAggregates(currentWeekStart),
+      computeAggregates(previousWeekStart, previousWeekEnd),
+    ]);
+
+    let growthPercent: number;
+    if (previousWeek.revenue === 0) {
+      growthPercent = currentWeek.revenue > 0 ? 100 : 0;
+    } else {
+      growthPercent =
+        Math.round(
+          ((currentWeek.revenue - previousWeek.revenue) / previousWeek.revenue) * 1000,
+        ) / 10;
+    }
+
+    return { currentWeek, previousWeek, growthPercent };
+  }
+
+  async getPrepTimeEstimate(cookUserId: string) {
+    const profile = await this.getCookProfile(cookUserId);
+    const base = profile.prepTimeAvgMin ?? DEFAULT_PREP_TIME_MIN;
+
+    const activeOrdersCount = await this.prisma.order.count({
+      where: {
+        cookId: cookUserId,
+        status: { in: ACTIVE_COOK_STATUSES },
+      },
+    });
+
+    let estimatedPrepTimeMin = base;
+    if (activeOrdersCount >= 6) estimatedPrepTimeMin = base + 20;
+    else if (activeOrdersCount >= 3) estimatedPrepTimeMin = base + 10;
+
+    return { activeOrdersCount, estimatedPrepTimeMin };
+  }
+
+  // ─── RUSH MODE ───────────────────────────────────────────
+
+  async setRushStatus(cookUserId: string, dto: SetRushDto) {
+    const profile = await this.getCookProfile(cookUserId);
+
+    if (dto.rush) {
+      const now = new Date();
+      const duration = dto.durationMinutes ?? RUSH_DEFAULT_MINUTES;
+      const rushUntil = new Date(now.getTime() + duration * 60 * 1000);
+
+      return this.prisma.cookProfile.update({
+        where: { id: profile.id },
+        data: {
+          isRush: true,
+          rushReason: dto.reason ?? null,
+          rushStartedAt: now,
+          rushUntil,
+        },
+      });
+    }
+
+    return this.prisma.cookProfile.update({
+      where: { id: profile.id },
+      data: {
+        isRush: false,
+        rushReason: null,
+        rushStartedAt: null,
+        rushUntil: null,
+      },
+    });
+  }
+
+  // ─── CHAT COOK ↔ RIDER ───────────────────────────────────
+
+  /** Vérifie que l'utilisateur cuisinière est propriétaire de la commande. */
+  private async assertCookOwnsOrder(orderId: string, cookUserId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, cookId: true },
+    });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (order.cookId !== cookUserId)
+      throw new ForbiddenException('Cette commande ne vous appartient pas');
+    return order;
+  }
+
+  async listOrderMessagesAsCook(orderId: string, cookUserId: string) {
+    await this.assertCookOwnsOrder(orderId, cookUserId);
+    return this.prisma.orderMessage.findMany({
+      where: { orderId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        senderId: true,
+        senderRole: true,
+        text: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  async postOrderMessageAsCook(
+    orderId: string,
+    cookUserId: string,
+    dto: SendOrderMessageDto,
+  ) {
+    await this.assertCookOwnsOrder(orderId, cookUserId);
+    const message = await this.prisma.orderMessage.create({
+      data: {
+        orderId,
+        senderId: cookUserId,
+        senderRole: 'COOK',
+        text: dto.text,
+      },
+      select: {
+        id: true,
+        senderId: true,
+        senderRole: true,
+        text: true,
+        createdAt: true,
+      },
+    });
+    this.eventsService.emitToOrderRoom(orderId, 'message:new', { ...message, orderId });
+    return message;
   }
 }

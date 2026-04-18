@@ -212,6 +212,10 @@ model CookProfile {
   subscriptionPlan   SubscriptionPlan   @default(FREE)
   subscriptionStatus SubscriptionStatus @default(TRIAL)
   subscriptionEndsAt DateTime?
+  isRush             Boolean            @default(false)
+  rushReason         String?
+  rushStartedAt      DateTime?
+  rushUntil          DateTime?
   createdAt          DateTime           @default(now())
 
   menuItems   MenuItem[]
@@ -232,6 +236,7 @@ model MenuItem {
   category       String
   imageUrl       String?
   isAvailable    Boolean     @default(true)
+  unavailableReason String?
   isDailySpecial Boolean     @default(false)
   prepTimeMin    Int?
   stockRemaining Int?
@@ -278,6 +283,7 @@ model Order {
   delivery     Delivery?
   reviews      Review[]
   chatMessages ChatMessage[]
+  messages     OrderMessage[]
   disputes     Dispute[]
 
   @@index([status])
@@ -396,6 +402,19 @@ model ChatMessage {
   content   String
   readAt    DateTime?
   createdAt DateTime  @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+// 11b. OrderMessage — chat cuisinière ↔ livreur
+model OrderMessage {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  senderId   String
+  senderRole String // "COOK" | "RIDER"
+  text       String
+  createdAt  DateTime @default(now())
 
   @@index([orderId, createdAt])
 }
