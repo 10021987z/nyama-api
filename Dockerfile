@@ -12,4 +12,5 @@ RUN npx prisma generate
 RUN npx nest build
 
 EXPOSE 3000
-CMD ["node", "dist/src/main.js"]
+# Applique les migrations Prisma au démarrage avant de lancer l'API.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]
