@@ -254,16 +254,18 @@ export class RidersService {
       });
     }
 
+    let result;
     if (newStatus === DeliveryStatus.DELIVERED) {
-      updateData.deliveredAt = new Date();
+      const now = new Date();
+      updateData.deliveredAt = now;
       const riderEarningXaf = Math.round(delivery.order.deliveryFeeXaf * RIDER_COMMISSION);
       updateData.riderEarningXaf = riderEarningXaf;
 
-      // Mettre à jour la commande et créer le gain rider
-      await Promise.all([
+      // Transaction atomique : delivery + order + earning + trip counter
+      const [, , updatedDelivery] = await this.prisma.$transaction([
         this.prisma.order.update({
           where: { id: delivery.orderId },
-          data: { status: OrderStatus.DELIVERED, deliveredAt: new Date() },
+          data: { status: OrderStatus.DELIVERED, deliveredAt: now },
         }),
         this.prisma.riderEarning.create({
           data: {
@@ -274,17 +276,22 @@ export class RidersService {
             netXaf: riderEarningXaf,
           },
         }),
+        this.prisma.delivery.update({
+          where: { id: deliveryId },
+          data: updateData,
+        }),
         this.prisma.riderProfile.update({
           where: { id: riderProfile.id },
           data: { totalTrips: { increment: 1 } },
         }),
       ]);
+      result = updatedDelivery;
+    } else {
+      result = await this.prisma.delivery.update({
+        where: { id: deliveryId },
+        data: updateData,
+      });
     }
-
-    const result = await this.prisma.delivery.update({
-      where: { id: deliveryId },
-      data: updateData,
-    });
 
     // Infos livreur pour enrichir les payloads
     const riderUser = await this.prisma.user.findUnique({
@@ -456,5 +463,296 @@ export class RidersService {
     );
     this.eventsService.emitToOrderRoom(orderId, 'message:new', { ...message, orderId });
     return message;
+  }
+
+  // ─── LIVE LOCATION ───────────────────────────────────────
+
+  // Rate-limit mémoire : max 1 emit / 3 s par rider
+  private lastLocationEmitAt = new Map<string, number>();
+  private static readonly LOCATION_EMIT_MIN_INTERVAL_MS = 3000;
+
+  async updateLocationLive(
+    riderUserId: string,
+    lat: number,
+    lng: number,
+    orderId?: string,
+  ) {
+    const profile = await this.getRiderProfile(riderUserId);
+
+    // Persistance en DB (toujours)
+    await this.prisma.riderProfile.update({
+      where: { id: profile.id },
+      data: {
+        lastLocationLat: lat,
+        lastLocationLng: lng,
+        lastSeenAt: new Date(),
+      },
+    });
+
+    // Rate-limit emit socket
+    const now = Date.now();
+    const lastAt = this.lastLocationEmitAt.get(riderUserId) ?? 0;
+    if (now - lastAt < RidersService.LOCATION_EMIT_MIN_INTERVAL_MS) {
+      return { ok: true, emitted: false };
+    }
+    this.lastLocationEmitAt.set(riderUserId, now);
+
+    // Résout l'orderId actif si non fourni
+    let targetOrder: { id: string; clientId: string } | null = null;
+    if (orderId) {
+      const ord = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { id: true, clientId: true, riderId: true },
+      });
+      if (ord && ord.riderId === riderUserId) {
+        targetOrder = { id: ord.id, clientId: ord.clientId };
+      }
+    } else {
+      const active = await this.prisma.order.findFirst({
+        where: {
+          riderId: riderUserId,
+          status: {
+            in: [OrderStatus.ASSIGNED, OrderStatus.PICKED_UP, OrderStatus.DELIVERING],
+          },
+        },
+        select: { id: true, clientId: true },
+      });
+      if (active) targetOrder = active;
+    }
+
+    if (targetOrder) {
+      await this.eventsService.updateRiderLocation(riderUserId, lat, lng);
+    }
+
+    return { ok: true, emitted: Boolean(targetOrder) };
+  }
+
+  // ─── PROFIL COMPLET ──────────────────────────────────────
+
+  async getFullProfile(riderUserId: string) {
+    const profile = await this.prisma.riderProfile.findUnique({
+      where: { userId: riderUserId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            avatarUrl: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+    if (!profile) throw new NotFoundException('Profil livreur introuvable');
+
+    const reviewsCount = await this.prisma.review.count({
+      where: {
+        riderRating: { not: null },
+        order: { riderId: riderUserId },
+      },
+    });
+
+    const docStatus = (expiry: Date | null) => {
+      if (!expiry) return 'MISSING';
+      const now = Date.now();
+      const diffDays = Math.round((expiry.getTime() - now) / (1000 * 60 * 60 * 24));
+      if (diffDays < 0) return 'EXPIRED';
+      if (diffDays <= 30) return 'EXPIRING_SOON';
+      return 'VALID';
+    };
+
+    return {
+      id: profile.id,
+      userId: profile.userId,
+      name: profile.user.name,
+      phone: profile.user.phone,
+      email: profile.user.email,
+      avatarUrl: profile.user.avatarUrl,
+      memberSince: profile.user.createdAt,
+      isOnline: profile.isOnline,
+      onlineSinceAt: profile.onlineSinceAt,
+      lastSeenAt: profile.lastSeenAt,
+      avgRating: profile.avgRating,
+      reviewsCount,
+      totalTrips: profile.totalTrips,
+      isVerified: profile.isVerified,
+      address: profile.address,
+      vehicle: {
+        type: profile.vehicleType,
+        brand: profile.vehicleBrand,
+        plate: profile.plateNumber,
+        year: profile.vehicleYear,
+        km: profile.vehicleKm,
+      },
+      documents: {
+        license: {
+          number: profile.licenseNumber,
+          expiry: profile.licenseExpiry,
+          url: profile.licenseUrl,
+          status: docStatus(profile.licenseExpiry),
+        },
+        registration: {
+          url: profile.registrationUrl,
+          status: profile.registrationUrl ? 'VALID' : 'MISSING',
+        },
+        insurance: {
+          number: profile.insuranceNumber,
+          expiry: profile.insuranceExpiry,
+          url: profile.insuranceUrl,
+          status: docStatus(profile.insuranceExpiry),
+        },
+      },
+      wallet: {
+        momoPhone: profile.momoPhone,
+        momoProvider: profile.momoProvider,
+        iban: profile.iban,
+      },
+    };
+  }
+
+  async updateProfile(riderUserId: string, dto: Record<string, unknown>) {
+    const profile = await this.getRiderProfile(riderUserId);
+    const data: Prisma.RiderProfileUpdateInput = {};
+
+    // Champs autorisés uniquement (pas de changement de nom/KYC)
+    const stringFields = [
+      'plateNumber',
+      'vehicleBrand',
+      'insuranceNumber',
+      'licenseNumber',
+      'iban',
+      'momoPhone',
+      'momoProvider',
+      'address',
+    ] as const;
+    for (const k of stringFields) {
+      if (typeof dto[k] === 'string') (data as any)[k] = dto[k];
+    }
+    const intFields = ['vehicleYear', 'vehicleKm'] as const;
+    for (const k of intFields) {
+      if (typeof dto[k] === 'number') (data as any)[k] = dto[k];
+    }
+    const dateFields = ['insuranceExpiry', 'licenseExpiry'] as const;
+    for (const k of dateFields) {
+      if (typeof dto[k] === 'string') (data as any)[k] = new Date(dto[k] as string);
+    }
+
+    await this.prisma.riderProfile.update({
+      where: { id: profile.id },
+      data,
+    });
+    return this.getFullProfile(riderUserId);
+  }
+
+  // ─── STATS FINANCIÈRES ───────────────────────────────────
+
+  async getFinancialStats(riderUserId: string) {
+    const profile = await this.getRiderProfile(riderUserId);
+
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(startOfWeek.getDate() - 7);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const startOfPrevWeek = new Date(now);
+    startOfPrevWeek.setDate(startOfPrevWeek.getDate() - 14);
+    startOfPrevWeek.setHours(0, 0, 0, 0);
+
+    const startOfMonth = new Date(now);
+    startOfMonth.setDate(startOfMonth.getDate() - 30);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const bucket = async (from: Date, to?: Date) => {
+      const deliveries = await this.prisma.delivery.findMany({
+        where: {
+          riderId: profile.id,
+          status: DeliveryStatus.DELIVERED,
+          deliveredAt: to ? { gte: from, lt: to } : { gte: from },
+        },
+        select: {
+          riderEarningXaf: true,
+          distanceKm: true,
+          assignedAt: true,
+          deliveredAt: true,
+        },
+      });
+      const earnings = deliveries.reduce((s, d) => s + (d.riderEarningXaf ?? 0), 0);
+      const km = deliveries.reduce((s, d) => s + (d.distanceKm ?? 0), 0);
+      const hoursOnline = deliveries.reduce((s, d) => {
+        if (!d.assignedAt || !d.deliveredAt) return s;
+        return s + (d.deliveredAt.getTime() - d.assignedAt.getTime()) / 3_600_000;
+      }, 0);
+      return {
+        trips: deliveries.length,
+        earningsXaf: earnings,
+        distanceKm: Math.round(km * 10) / 10,
+        hoursOnline: Math.round(hoursOnline * 10) / 10,
+      };
+    };
+
+    const [today, week, prevWeek, month] = await Promise.all([
+      bucket(startOfToday),
+      bucket(startOfWeek),
+      bucket(startOfPrevWeek, startOfWeek),
+      bucket(startOfMonth),
+    ]);
+
+    const vsLastWeekPct =
+      prevWeek.earningsXaf > 0
+        ? Math.round(((week.earningsXaf - prevWeek.earningsXaf) / prevWeek.earningsXaf) * 100)
+        : null;
+
+    // Série 30 jours pour le graphique bar (earnings par jour)
+    const daily = await this.prisma.delivery.findMany({
+      where: {
+        riderId: profile.id,
+        status: DeliveryStatus.DELIVERED,
+        deliveredAt: { gte: startOfMonth },
+      },
+      select: { deliveredAt: true, riderEarningXaf: true },
+    });
+    const byDay = new Map<string, number>();
+    for (const d of daily) {
+      if (!d.deliveredAt) continue;
+      const key = d.deliveredAt.toISOString().slice(0, 10);
+      byDay.set(key, (byDay.get(key) ?? 0) + (d.riderEarningXaf ?? 0));
+    }
+    const dailySeries: Array<{ date: string; earningsXaf: number }> = [];
+    for (let i = 29; i >= 0; i--) {
+      const day = new Date(now);
+      day.setDate(day.getDate() - i);
+      const key = day.toISOString().slice(0, 10);
+      dailySeries.push({ date: key, earningsXaf: byDay.get(key) ?? 0 });
+    }
+
+    const reviewsCount = await this.prisma.review.count({
+      where: {
+        riderRating: { not: null },
+        order: { riderId: riderUserId },
+      },
+    });
+
+    return {
+      today,
+      week: { ...week, vsLastWeekPct },
+      month,
+      allTime: {
+        totalTrips: profile.totalTrips,
+        totalEarnings: (
+          await this.prisma.riderEarning.aggregate({
+            where: { riderId: profile.id },
+            _sum: { netXaf: true },
+          })
+        )._sum.netXaf ?? 0,
+        rating: profile.avgRating,
+        reviewsCount,
+      },
+      dailySeries,
+    };
   }
 }

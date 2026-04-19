@@ -142,21 +142,21 @@ enum TicketPriority {
 
 // 1. User — compte commun à tous les rôles
 model User {
-  id          String   @id @default(uuid())
-  phone       String   @unique
-  email       String?  @unique
-  firebaseUid String?  @unique
-  name        String?
-  role        UserRole @default(CLIENT)
-  firstLoginCode  String?
-  firstLoginUsed  Boolean  @default(false)
-  quarterId   String?
-  quarter     Quarter? @relation(fields: [quarterId], references: [id])
-  locationLat Float?
-  locationLng Float?
-  avatarUrl   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(uuid())
+  phone          String   @unique
+  email          String?  @unique
+  firebaseUid    String?  @unique
+  name           String?
+  role           UserRole @default(CLIENT)
+  firstLoginCode String?
+  firstLoginUsed Boolean  @default(false)
+  quarterId      String?
+  quarter        Quarter? @relation(fields: [quarterId], references: [id])
+  locationLat    Float?
+  locationLng    Float?
+  avatarUrl      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   orders              Order[]              @relation("ClientOrders")
   cookOrders          Order[]              @relation("CookOrders")
@@ -227,21 +227,21 @@ model CookProfile {
 
 // 4. MenuItem — plat proposé par une cuisinière
 model MenuItem {
-  id             String      @id @default(uuid())
-  cookId         String
-  cook           CookProfile @relation(fields: [cookId], references: [id], onDelete: Cascade)
-  name           String
-  description    String?
-  priceXaf       Int
-  category       String
-  imageUrl       String?
-  isAvailable    Boolean     @default(true)
+  id                String      @id @default(uuid())
+  cookId            String
+  cook              CookProfile @relation(fields: [cookId], references: [id], onDelete: Cascade)
+  name              String
+  description       String?
+  priceXaf          Int
+  category          String
+  imageUrl          String?
+  isAvailable       Boolean     @default(true)
   unavailableReason String?
-  isDailySpecial Boolean     @default(false)
-  prepTimeMin    Int?
-  stockRemaining Int?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  isDailySpecial    Boolean     @default(false)
+  prepTimeMin       Int?
+  stockRemaining    Int?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   orderItems OrderItem[]
 
@@ -356,21 +356,34 @@ model Delivery {
 
 // 9. RiderProfile — benskineur
 model RiderProfile {
-  id               String      @id @default(uuid())
-  userId           String      @unique
-  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  vehicleType      VehicleType @default(MOTO)
-  plateNumber      String?
-  isVerified       Boolean     @default(false)
-  isOnline         Boolean     @default(false)
-  lastSeenAt       DateTime?
-  lastLocationLat  Float?
-  lastLocationLng  Float?
-  avgRating        Float       @default(0)
-  totalTrips       Int         @default(0)
-  momoPhone        String?
-  momoProvider     String?
-  createdAt        DateTime    @default(now())
+  id              String      @id @default(uuid())
+  userId          String      @unique
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicleType     VehicleType @default(MOTO)
+  plateNumber     String?
+  vehicleBrand    String?
+  vehicleYear     Int?
+  vehicleKm       Int?
+  insuranceNumber String?
+  insuranceExpiry DateTime?
+  licenseNumber   String?
+  licenseExpiry   DateTime?
+  licenseUrl      String?
+  registrationUrl String?
+  insuranceUrl    String?
+  iban            String?
+  address         String?
+  isVerified      Boolean     @default(false)
+  isOnline        Boolean     @default(false)
+  onlineSinceAt   DateTime?
+  lastSeenAt      DateTime?
+  lastLocationLat Float?
+  lastLocationLng Float?
+  avgRating       Float       @default(0)
+  totalTrips      Int         @default(0)
+  momoPhone       String?
+  momoProvider    String?
+  createdAt       DateTime    @default(now())
 
   deliveries    Delivery[]
   riderEarnings RiderEarning[]
@@ -502,41 +515,41 @@ model RefreshToken {
 
 // 17. PartnershipRequest — candidature publique depuis le portail web (pas d'auth)
 model PartnershipRequest {
-  id              String   @id @default(uuid())
-  type            String   // "cuisiniere" ou "livreur"
-  firstName       String
-  lastName        String
-  phone           String
-  email           String?
-  companyName     String?  // Nom du restaurant/établissement
-  description     String?
-  city            String
-  quarter         String
-  vehicleType     String?  // Pour livreurs : moto, velo, voiture, a_pied
-  idNumber        String?  // Numéro CNI
-  status          String   @default("pending") // pending, under_review, approved, rejected
-  adminNotes      String?
-  accessCodeHash  String?
-  reviewedBy      String?
-  reviewedAt      DateTime?
+  id             String    @id @default(uuid())
+  type           String // "cuisiniere" ou "livreur"
+  firstName      String
+  lastName       String
+  phone          String
+  email          String?
+  companyName    String? // Nom du restaurant/établissement
+  description    String?
+  city           String
+  quarter        String
+  vehicleType    String? // Pour livreurs : moto, velo, voiture, a_pied
+  idNumber       String? // Numéro CNI
+  status         String    @default("pending") // pending, under_review, approved, rejected
+  adminNotes     String?
+  accessCodeHash String?
+  reviewedBy     String?
+  reviewedAt     DateTime?
 
   // Documents KYC livreur
-  idDocumentUrl   String?
-  selfieUrl       String?
-  licenseUrl      String?
-  insuranceUrl    String?
+  idDocumentUrl String?
+  selfieUrl     String?
+  licenseUrl    String?
+  insuranceUrl  String?
 
   // Statut vérification documents: pending, verified, rejected
-  idDocumentStatus String  @default("pending")
-  selfieStatus     String  @default("pending")
-  licenseStatus    String  @default("pending")
-  insuranceStatus  String  @default("pending")
+  idDocumentStatus String @default("pending")
+  selfieStatus     String @default("pending")
+  licenseStatus    String @default("pending")
+  insuranceStatus  String @default("pending")
 
   // Score KYC automatique (0-100), 25 points par document vérifié
-  kycScore        Int      @default(0)
+  kycScore Int @default(0)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([type, status])
@@ -734,7 +747,7 @@ model RiderApplication {
 // 25. DocumentUpload — stockage base64 en BDD des pièces KYC
 model DocumentUpload {
   id           String   @id @default(uuid())
-  data         String   // base64 du contenu
+  data         String // base64 du contenu
   mimeType     String
   size         Int
   originalName String?
