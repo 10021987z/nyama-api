@@ -70,16 +70,20 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       client.data.user = user as AuthenticatedUser;
 
-      // Toujours rejoindre la room personnelle client
+      // Rooms personnelles — on rejoint les 2 formats (colon + hyphen) pour
+      // couvrir tous les clients legacy/nouveaux sans casser l'existant.
       await client.join(`client:${user.id}`);
+      await client.join(`client-${user.id}`);
 
       if (user.role === UserRole.COOK) {
         await client.join(`cook:${user.id}`);
+        await client.join(`cook-${user.id}`);
         this.logger.log(`[WS] Cuisinière connectée : ${user.name ?? user.id}`);
       }
 
       if (user.role === UserRole.RIDER) {
         await client.join(`rider:${user.id}`);
+        await client.join(`rider-${user.id}`);
         await client.join('riders:all');
         if (user.quarterId) {
           await client.join(`riders:${user.quarterId}`);
@@ -143,5 +147,36 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     await client.join(`order-${orderId}`);
     client.emit('joined:order', { orderId });
+  }
+
+  /**
+   * Permet au client, à la cuisinière ou au livreur impliqué dans une commande
+   * de rejoindre la room `order-<orderId>` pour recevoir les events temps-réel
+   * (statut, messages, tracking). Appelé typiquement depuis l'écran de détail.
+   */
+  @SubscribeMessage('order:subscribe')
+  async handleOrderSubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { orderId: string },
+  ) {
+    const user = client.data.user as AuthenticatedUser | undefined;
+    if (!user) return;
+    const orderId = payload?.orderId;
+    if (!orderId || typeof orderId !== 'string') return;
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, clientId: true, cookId: true, riderId: true },
+    });
+    if (!order) return;
+
+    const isClient = user.role === UserRole.CLIENT && order.clientId === user.id;
+    const isCook = user.role === UserRole.COOK && order.cookId === user.id;
+    const isRider = user.role === UserRole.RIDER && order.riderId === user.id;
+    const isAdmin = user.role === UserRole.ADMIN;
+    if (!isClient && !isCook && !isRider && !isAdmin) return;
+
+    await client.join(`order-${orderId}`);
+    client.emit('order:subscribed', { orderId });
   }
 }

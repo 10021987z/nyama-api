@@ -19,19 +19,22 @@ export class EventsService {
     return this.gateway.server;
   }
 
-  /** Émet un événement vers la room personnelle d'une cuisinière */
+  /** Émet un événement vers la room personnelle d'une cuisinière (colon + hyphen). */
   notifyCook(cookUserId: string, event: string, data: unknown): void {
     this.server?.to(`cook:${cookUserId}`).emit(event, data);
+    this.server?.to(`cook-${cookUserId}`).emit(event, data);
   }
 
-  /** Émet un événement vers la room personnelle d'un client */
+  /** Émet un événement vers la room personnelle d'un client (colon + hyphen). */
   notifyClient(clientUserId: string, event: string, data: unknown): void {
     this.server?.to(`client:${clientUserId}`).emit(event, data);
+    this.server?.to(`client-${clientUserId}`).emit(event, data);
   }
 
-  /** Émet un événement vers la room personnelle d'un livreur */
+  /** Émet un événement vers la room personnelle d'un livreur (colon + hyphen). */
   notifyRider(riderUserId: string, event: string, data: unknown): void {
     this.server?.to(`rider:${riderUserId}`).emit(event, data);
+    this.server?.to(`rider-${riderUserId}`).emit(event, data);
   }
 
   /** Émet un événement vers la room d'une commande (chat cuisinière ↔ livreur). */

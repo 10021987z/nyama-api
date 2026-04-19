@@ -356,18 +356,21 @@ model Delivery {
 
 // 9. RiderProfile — benskineur
 model RiderProfile {
-  id           String      @id @default(uuid())
-  userId       String      @unique
-  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  vehicleType  VehicleType @default(MOTO)
-  plateNumber  String?
-  isVerified   Boolean     @default(false)
-  isOnline     Boolean     @default(false)
-  avgRating    Float       @default(0)
-  totalTrips   Int         @default(0)
-  momoPhone    String?
-  momoProvider String?
-  createdAt    DateTime    @default(now())
+  id               String      @id @default(uuid())
+  userId           String      @unique
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicleType      VehicleType @default(MOTO)
+  plateNumber      String?
+  isVerified       Boolean     @default(false)
+  isOnline         Boolean     @default(false)
+  lastSeenAt       DateTime?
+  lastLocationLat  Float?
+  lastLocationLng  Float?
+  avgRating        Float       @default(0)
+  totalTrips       Int         @default(0)
+  momoPhone        String?
+  momoProvider     String?
+  createdAt        DateTime    @default(now())
 
   deliveries    Delivery[]
   riderEarnings RiderEarning[]

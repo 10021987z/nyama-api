@@ -19,6 +19,7 @@ import { RidersService } from './riders.service';
 import { UpdateDeliveryStatusDto } from './dto/update-delivery-status.dto';
 import { QueryEarningsDto } from './dto/query-earnings.dto';
 import { SendOrderMessageDto } from './dto/send-order-message.dto';
+import { UpdateRiderStatusDto } from './dto/update-rider-status.dto';
 
 interface AuthUser {
   id: string;
@@ -45,6 +46,22 @@ export class RiderController {
   @HttpCode(HttpStatus.OK)
   acceptOrder(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.ridersService.acceptOrder(id, user.id);
+  }
+
+  // Certains clients utilisent PATCH historiquement → on supporte les deux.
+  @Patch('orders/:id/accept')
+  @HttpCode(HttpStatus.OK)
+  acceptOrderPatch(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.ridersService.acceptOrder(id, user.id);
+  }
+
+  @Post('status')
+  @HttpCode(HttpStatus.OK)
+  updateStatus(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateRiderStatusDto,
+  ) {
+    return this.ridersService.updateRiderStatus(user.id, dto);
   }
 
   @Patch('deliveries/:id/status')

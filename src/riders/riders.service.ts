@@ -8,7 +8,17 @@ import { DeliveryStatus, OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryEarningsDto } from './dto/query-earnings.dto';
 import { SendOrderMessageDto } from './dto/send-order-message.dto';
+import { UpdateRiderStatusDto } from './dto/update-rider-status.dto';
 import { EventsService } from '../events/events.service';
+
+// Libellés FR côté client pour chaque étape de livraison
+const DELIVERY_STATUS_FR: Record<DeliveryStatus, string> = {
+  [DeliveryStatus.ASSIGNED]: 'Livreur assigné',
+  [DeliveryStatus.ARRIVED_RESTAURANT]: 'Livreur arrivé au restaurant',
+  [DeliveryStatus.PICKED_UP]: 'Commande récupérée, en route',
+  [DeliveryStatus.ARRIVED_CLIENT]: 'Livreur arrivé à destination',
+  [DeliveryStatus.DELIVERED]: 'Livraison terminée',
+};
 
 // Transitions valides pour le livreur
 const DELIVERY_TRANSITIONS: Record<DeliveryStatus, DeliveryStatus | null> = {
@@ -37,6 +47,7 @@ export class RidersService {
   }
 
   async getAvailableOrders() {
+    // TODO: filtrer par rider.online = true et afficher uniquement commandes dans un rayon de 5km
     return this.prisma.order.findMany({
       where: { status: OrderStatus.READY, riderId: null },
       include: {
@@ -45,6 +56,40 @@ export class RidersService {
       },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  /**
+   * Met à jour le statut en ligne / position GPS d'un livreur.
+   * Persiste dans RiderProfile (isOnline, lastSeenAt, lastLocationLat, lastLocationLng).
+   */
+  async updateRiderStatus(riderUserId: string, dto: UpdateRiderStatusDto) {
+    const profile = await this.getRiderProfile(riderUserId);
+
+    const data: Prisma.RiderProfileUpdateInput = {
+      isOnline: dto.online,
+      lastSeenAt: new Date(),
+    };
+    if (typeof dto.locationLat === 'number') {
+      data.lastLocationLat = dto.locationLat;
+    }
+    if (typeof dto.locationLng === 'number') {
+      data.lastLocationLng = dto.locationLng;
+    }
+
+    const updated = await this.prisma.riderProfile.update({
+      where: { id: profile.id },
+      data,
+      select: {
+        id: true,
+        userId: true,
+        isOnline: true,
+        lastSeenAt: true,
+        lastLocationLat: true,
+        lastLocationLng: true,
+      },
+    });
+
+    return updated;
   }
 
   async acceptOrder(orderId: string, riderUserId: string) {
@@ -60,7 +105,7 @@ export class RidersService {
     }
 
     // Mettre à jour la commande et créer la livraison
-    const [updatedOrder] = await Promise.all([
+    const [updatedOrder, delivery] = await Promise.all([
       this.prisma.order.update({
         where: { id: orderId },
         data: {
@@ -84,15 +129,67 @@ export class RidersService {
       }),
     ]);
 
-    // Notifier le client que son livreur est assigné
-    this.eventsService.notifyClient(order.clientId, 'order:status', {
-      orderId,
-      status: OrderStatus.ASSIGNED,
-      riderId: riderUserId,
+    // Récupère les infos publiques du livreur pour enrichir les payloads
+    const riderUser = await this.prisma.user.findUnique({
+      where: { id: riderUserId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        avatarUrl: true,
+        riderProfile: {
+          select: { vehicleType: true, plateNumber: true },
+        },
+      },
     });
-    this.eventsService.notifyCook(order.cookId, 'order:status', {
+
+    const riderPayload = {
+      id: riderUserId,
+      name: riderUser?.name ?? null,
+      phone: riderUser?.phone ?? null,
+      photo: riderUser?.avatarUrl ?? null,
+      vehicleType: riderUser?.riderProfile?.vehicleType ?? null,
+      plateNumber: riderUser?.riderProfile?.plateNumber ?? null,
+    };
+
+    // 1) order:status → room commande + room cuisinière
+    const orderStatusPayload = {
       orderId,
       status: OrderStatus.ASSIGNED,
+      label: 'En livraison',
+    };
+    this.eventsService.emitToOrderRoom(orderId, 'order:status', orderStatusPayload);
+    this.eventsService.notifyCook(order.cookId, 'order:status', orderStatusPayload);
+    this.eventsService.notifyClient(order.clientId, 'order:status', {
+      ...orderStatusPayload,
+      riderId: riderUserId,
+      rider: riderPayload,
+    });
+
+    // 2) order:assigned → cuisinière, avec infos livreur complètes
+    this.eventsService.notifyCook(order.cookId, 'order:assigned', {
+      orderId,
+      rider: riderPayload,
+    });
+
+    // 3) delivery:created → room personnelle du livreur (pour basculer en course active)
+    this.eventsService.notifyRider(riderUserId, 'delivery:created', {
+      deliveryId: delivery.id,
+      orderId,
+      status: DeliveryStatus.ASSIGNED,
+      dropoffLat: delivery.dropoffLat,
+      dropoffLng: delivery.dropoffLng,
+      assignedAt: delivery.assignedAt,
+      order: {
+        id: updatedOrder.id,
+        status: updatedOrder.status,
+        deliveryAddress: updatedOrder.deliveryAddress,
+        deliveryLat: updatedOrder.deliveryLat,
+        deliveryLng: updatedOrder.deliveryLng,
+        totalXaf: updatedOrder.totalXaf,
+        deliveryFeeXaf: updatedOrder.deliveryFeeXaf,
+        cook: updatedOrder.cook,
+      },
     });
 
     return updatedOrder;
@@ -164,12 +261,60 @@ export class RidersService {
       data: updateData,
     });
 
-    // Notifier le client de la progression de la livraison
-    this.eventsService.notifyClient(delivery.order.clientId, 'order:status', {
-      orderId: delivery.orderId,
-      status: newStatus === DeliveryStatus.DELIVERED ? OrderStatus.DELIVERED : OrderStatus.PICKED_UP,
-      deliveryStatus: newStatus,
+    // Infos livreur pour enrichir les payloads
+    const riderUser = await this.prisma.user.findUnique({
+      where: { id: riderUserId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        avatarUrl: true,
+        riderProfile: {
+          select: { vehicleType: true, plateNumber: true },
+        },
+      },
     });
+    const riderPayload = {
+      id: riderUserId,
+      name: riderUser?.name ?? null,
+      phone: riderUser?.phone ?? null,
+      photo: riderUser?.avatarUrl ?? null,
+      vehicleType: riderUser?.riderProfile?.vehicleType ?? null,
+      plateNumber: riderUser?.riderProfile?.plateNumber ?? null,
+    };
+
+    const deliveryPayload = {
+      deliveryId,
+      orderId: delivery.orderId,
+      status: newStatus,
+      rider: riderPayload,
+    };
+
+    // delivery:status → cuisinière, client, livreur
+    this.eventsService.notifyCook(delivery.order.cookId, 'delivery:status', deliveryPayload);
+    this.eventsService.notifyClient(delivery.order.clientId, 'delivery:status', deliveryPayload);
+    this.eventsService.notifyRider(riderUserId, 'delivery:status', deliveryPayload);
+
+    // Mapping vers order:status global avec libellé FR
+    const orderStatusForClient: OrderStatus =
+      newStatus === DeliveryStatus.DELIVERED
+        ? OrderStatus.DELIVERED
+        : newStatus === DeliveryStatus.PICKED_UP ||
+          newStatus === DeliveryStatus.ARRIVED_CLIENT
+          ? OrderStatus.PICKED_UP
+          : OrderStatus.ASSIGNED;
+
+    const orderStatusPayload = {
+      orderId: delivery.orderId,
+      status: orderStatusForClient,
+      deliveryStatus: newStatus,
+      label: DELIVERY_STATUS_FR[newStatus],
+      rider: riderPayload,
+    };
+
+    this.eventsService.emitToOrderRoom(delivery.orderId, 'order:status', orderStatusPayload);
+    this.eventsService.notifyClient(delivery.order.clientId, 'order:status', orderStatusPayload);
+    this.eventsService.notifyCook(delivery.order.cookId, 'order:status', orderStatusPayload);
 
     return result;
   }
