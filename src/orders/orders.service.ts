@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
@@ -34,6 +35,8 @@ const ORDER_LIST_INCLUDE = {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventsService: EventsService,
@@ -110,6 +113,9 @@ export class OrdersService {
     });
 
     // WebSocket : notifier la cuisinière en temps réel
+    this.logger.log(
+      `📡 emit('order:new') → rooms: cook-${cookProfile.userId} | payload: orderId=${order.id} totalXaf=${order.totalXaf}`,
+    );
     this.eventsService.notifyCook(cookProfile.userId, 'order:new', {
       orderId: order.id,
       totalXaf: order.totalXaf,
@@ -196,6 +202,13 @@ export class OrdersService {
       include: ORDER_DETAIL_INCLUDE,
     });
     // Let realtime listeners know
+    this.logger.log(
+      `📡 emit('order:status') → rooms: order-${orderId}, cook-${order.cookId}, client-${order.clientId}${order.riderId ? ', rider-' + order.riderId : ''} | payload: status=${status}`,
+    );
+    this.eventsService.emitToOrderRoom(orderId, 'order:status', {
+      orderId,
+      status,
+    });
     this.eventsService.notifyClient(order.clientId, 'order:status', {
       orderId,
       status,
@@ -204,6 +217,12 @@ export class OrdersService {
       orderId,
       status,
     });
+    if (order.riderId) {
+      this.eventsService.notifyRider(order.riderId, 'order:status', {
+        orderId,
+        status,
+      });
+    }
     return updated;
   }
 
@@ -220,7 +239,18 @@ export class OrdersService {
       data: { status: OrderStatus.PREPARING, acceptedAt: new Date() },
       include: ORDER_DETAIL_INCLUDE,
     });
+    this.logger.log(
+      `📡 emit('order:status') → rooms: order-${orderId}, cook-${order.cookId}, client-${order.clientId}${order.riderId ? ', rider-' + order.riderId : ''} | payload: status=${OrderStatus.PREPARING}`,
+    );
+    this.eventsService.emitToOrderRoom(orderId, 'order:status', {
+      orderId,
+      status: OrderStatus.PREPARING,
+    });
     this.eventsService.notifyClient(order.clientId, 'order:status', {
+      orderId,
+      status: OrderStatus.PREPARING,
+    });
+    this.eventsService.notifyCook(order.cookId, 'order:status', {
       orderId,
       status: OrderStatus.PREPARING,
     });
@@ -240,10 +270,24 @@ export class OrdersService {
       data: { status: OrderStatus.READY, readyAt: new Date() },
       include: ORDER_DETAIL_INCLUDE,
     });
+    this.logger.log(
+      `📡 emit('order:status') → rooms: order-${orderId}, cook-${order.cookId}, client-${order.clientId} | payload: status=${OrderStatus.READY}`,
+    );
+    this.eventsService.emitToOrderRoom(orderId, 'order:status', {
+      orderId,
+      status: OrderStatus.READY,
+    });
     this.eventsService.notifyClient(order.clientId, 'order:status', {
       orderId,
       status: OrderStatus.READY,
     });
+    this.eventsService.notifyCook(order.cookId, 'order:status', {
+      orderId,
+      status: OrderStatus.READY,
+    });
+    this.logger.log(
+      `📡 emit('order:available') → rooms: riders:all | payload: orderId=${orderId}`,
+    );
     this.eventsService.notifyAvailableRiders(null, 'order:available', {
       orderId,
       cookId: order.cookId,
@@ -295,6 +339,13 @@ export class OrdersService {
       },
       include: ORDER_DETAIL_INCLUDE,
     });
+    this.logger.log(
+      `📡 emit('order:status') → rooms: order-${orderId}, cook-${order.cookId}, client-${order.clientId}, rider-${riderUserId} | payload: status=${OrderStatus.ASSIGNED}`,
+    );
+    this.eventsService.emitToOrderRoom(orderId, 'order:status', {
+      orderId,
+      status: OrderStatus.ASSIGNED,
+    });
     this.eventsService.notifyClient(order.clientId, 'order:status', {
       orderId,
       status: OrderStatus.ASSIGNED,
@@ -303,6 +354,15 @@ export class OrdersService {
       orderId,
       status: OrderStatus.ASSIGNED,
     });
+    this.eventsService.notifyRider(riderUserId, 'order:status', {
+      orderId,
+      status: OrderStatus.ASSIGNED,
+    });
+    this.logger.log(
+      `📡 emit('order:assigned') → rooms: cook-${order.cookId}, client-${order.clientId}, rider-${riderUserId} | payload: orderId=${orderId}`,
+    );
+    this.eventsService.notifyCook(order.cookId, 'order:assigned', { orderId, riderId: riderUserId });
+    this.eventsService.notifyClient(order.clientId, 'order:assigned', { orderId, riderId: riderUserId });
     this.eventsService.notifyRider(riderUserId, 'order:assigned', { orderId });
     return updated;
   }
@@ -324,11 +384,22 @@ export class OrdersService {
       },
       include: ORDER_DETAIL_INCLUDE,
     });
+    this.logger.log(
+      `📡 emit('order:status') → rooms: order-${orderId}, cook-${order.cookId}, client-${order.clientId}, rider-${riderUserId} | payload: status=${OrderStatus.PICKED_UP}`,
+    );
+    this.eventsService.emitToOrderRoom(orderId, 'order:status', {
+      orderId,
+      status: OrderStatus.PICKED_UP,
+    });
     this.eventsService.notifyClient(order.clientId, 'order:status', {
       orderId,
       status: OrderStatus.PICKED_UP,
     });
     this.eventsService.notifyCook(order.cookId, 'order:status', {
+      orderId,
+      status: OrderStatus.PICKED_UP,
+    });
+    this.eventsService.notifyRider(riderUserId, 'order:status', {
       orderId,
       status: OrderStatus.PICKED_UP,
     });
@@ -353,11 +424,22 @@ export class OrdersService {
       },
       include: ORDER_DETAIL_INCLUDE,
     });
+    this.logger.log(
+      `📡 emit('order:status') → rooms: order-${orderId}, cook-${order.cookId}, client-${order.clientId}, rider-${riderUserId} | payload: status=${OrderStatus.DELIVERED}`,
+    );
+    this.eventsService.emitToOrderRoom(orderId, 'order:status', {
+      orderId,
+      status: OrderStatus.DELIVERED,
+    });
     this.eventsService.notifyClient(order.clientId, 'order:status', {
       orderId,
       status: OrderStatus.DELIVERED,
     });
     this.eventsService.notifyCook(order.cookId, 'order:status', {
+      orderId,
+      status: OrderStatus.DELIVERED,
+    });
+    this.eventsService.notifyRider(riderUserId, 'order:status', {
       orderId,
       status: OrderStatus.DELIVERED,
     });
@@ -388,9 +470,15 @@ export class OrdersService {
       },
       include: ORDER_DETAIL_INCLUDE,
     });
-    this.eventsService.notifyCook(order.cookId, 'order:cancelled', {
-      orderId,
-    });
+    this.logger.log(
+      `📡 emit('order:cancelled') → rooms: order-${orderId}, cook-${order.cookId}, client-${order.clientId}${order.riderId ? ', rider-' + order.riderId : ''} | payload: orderId=${orderId}`,
+    );
+    this.eventsService.emitToOrderRoom(orderId, 'order:cancelled', { orderId });
+    this.eventsService.notifyCook(order.cookId, 'order:cancelled', { orderId });
+    this.eventsService.notifyClient(order.clientId, 'order:cancelled', { orderId });
+    if (order.riderId) {
+      this.eventsService.notifyRider(order.riderId, 'order:cancelled', { orderId });
+    }
     return updated;
   }
 

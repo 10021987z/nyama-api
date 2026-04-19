@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AnalyticsService } from './analytics.service';
+import { EventsGateway } from '../events/events.gateway';
 import {
   QueryAdminUsersDto,
   QueryAdminOrdersDto,
@@ -33,7 +34,16 @@ import {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class AnalyticsController {
-  constructor(private readonly analyticsService: AnalyticsService) {}
+  constructor(
+    private readonly analyticsService: AnalyticsService,
+    private readonly eventsGateway: EventsGateway,
+  ) {}
+
+  // ── Debug socket.io : liste les connexions actives et leurs rooms ──
+  @Get('socket/debug')
+  getSocketDebug() {
+    return this.eventsGateway.getDebugInfo();
+  }
 
   @Get('dashboard')
   getDashboard() {

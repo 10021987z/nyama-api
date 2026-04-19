@@ -201,13 +201,34 @@ export class PaymentsService {
           acceptedAt: new Date(),
         },
       });
+      this.logger.log(
+        `📡 emit('payment:updated') → rooms: client-${order.clientId} | payload: status=SUCCESS orderId=${orderId}`,
+      );
       this.events.notifyClient(order.clientId, 'payment:updated', {
         orderId,
         status: paymentStatus,
       });
+      this.logger.log(
+        `📡 emit('order:new') → rooms: cook-${order.cookId} | payload: orderId=${orderId} totalXaf=${order.totalXaf}`,
+      );
       this.events.notifyCook(order.cookId, 'order:new', {
         orderId,
         totalXaf: order.totalXaf,
+      });
+      this.logger.log(
+        `📡 emit('order:status') → rooms: order-${orderId}, cook-${order.cookId}, client-${order.clientId} | payload: status=CONFIRMED (sync from payment)`,
+      );
+      this.events.emitToOrderRoom(orderId, 'order:status', {
+        orderId,
+        status: OrderStatus.CONFIRMED,
+      });
+      this.events.notifyClient(order.clientId, 'order:status', {
+        orderId,
+        status: OrderStatus.CONFIRMED,
+      });
+      this.events.notifyCook(order.cookId, 'order:status', {
+        orderId,
+        status: OrderStatus.CONFIRMED,
       });
       this.logger.log(
         `Order ${orderId} synced to CONFIRMED/PAID from terminal Payment`,
@@ -217,10 +238,16 @@ export class PaymentsService {
         where: { id: orderId },
         data: { paymentStatus: PaymentStatus.FAILED },
       });
+      this.logger.log(
+        `📡 emit('payment:updated') → rooms: client-${order.clientId} | payload: status=FAILED orderId=${orderId}`,
+      );
       this.events.notifyClient(order.clientId, 'payment:updated', {
         orderId,
         status: paymentStatus,
       });
+      this.logger.log(
+        `📡 emit('payment:failed') → rooms: cook-${order.cookId} | payload: orderId=${orderId}`,
+      );
       this.events.notifyCook(order.cookId, 'payment:failed', { orderId });
     }
   }
@@ -355,16 +382,40 @@ export class PaymentsService {
       select: { clientId: true, cookId: true, totalXaf: true },
     });
     if (order) {
+      this.logger.log(
+        `📡 emit('payment:updated') → rooms: client-${order.clientId} | payload: status=${nextStatus} orderId=${orderId}`,
+      );
       this.events.notifyClient(order.clientId, 'payment:updated', {
         orderId,
         status: nextStatus,
       });
       if (nextStatus === PaymentStatus.SUCCESS) {
+        this.logger.log(
+          `📡 emit('order:new') → rooms: cook-${order.cookId} | payload: orderId=${orderId} totalXaf=${order.totalXaf}`,
+        );
         this.events.notifyCook(order.cookId, 'order:new', {
           orderId,
           totalXaf: order.totalXaf,
         });
+        this.logger.log(
+          `📡 emit('order:status') → rooms: order-${orderId}, cook-${order.cookId}, client-${order.clientId} | payload: status=CONFIRMED (after payment success)`,
+        );
+        this.events.emitToOrderRoom(orderId, 'order:status', {
+          orderId,
+          status: OrderStatus.CONFIRMED,
+        });
+        this.events.notifyClient(order.clientId, 'order:status', {
+          orderId,
+          status: OrderStatus.CONFIRMED,
+        });
+        this.events.notifyCook(order.cookId, 'order:status', {
+          orderId,
+          status: OrderStatus.CONFIRMED,
+        });
       } else {
+        this.logger.log(
+          `📡 emit('payment:failed') → rooms: cook-${order.cookId} | payload: orderId=${orderId}`,
+        );
         this.events.notifyCook(order.cookId, 'payment:failed', { orderId });
       }
     }

@@ -1,4 +1,4 @@
-import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, Logger, forwardRef } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -8,6 +8,8 @@ const RIDER_LOCATION_TTL = 60; // secondes
 
 @Injectable()
 export class EventsService {
+  private readonly logger = new Logger(EventsService.name);
+
   constructor(
     @Inject(forwardRef(() => EventsGateway))
     private readonly gateway: EventsGateway,
@@ -81,12 +83,23 @@ export class EventsService {
     });
 
     if (activeOrder) {
-      this.notifyClient(activeOrder.clientId, 'tracking:update', {
+      const payload = {
         orderId: activeOrder.id,
+        riderId: riderUserId,
         lat,
         lng,
         updatedAt: new Date().toISOString(),
-      });
+      };
+      // TODO: standardiser sur 'rider:location' côté clients (actuellement 'tracking:update'
+      // est écouté par le client). On émet les deux events + sur la room order-<id>
+      // pour que tous les participants puissent suivre la position en temps réel.
+      this.logger.log(
+        `📡 emit('rider:location'/'tracking:update') → rooms: order-${activeOrder.id}, client-${activeOrder.clientId} | payload: lat=${lat} lng=${lng}`,
+      );
+      this.notifyClient(activeOrder.clientId, 'tracking:update', payload);
+      this.gateway.server?.to(`order-${activeOrder.id}`).emit('tracking:update', payload);
+      this.gateway.server?.to(`order-${activeOrder.id}`).emit('rider:location', payload);
+      this.notifyClient(activeOrder.clientId, 'rider:location', payload);
     }
   }
 }

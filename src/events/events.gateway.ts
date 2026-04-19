@@ -47,7 +47,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const token = raw?.replace(/^Bearer\s+/i, '');
 
       if (!token) {
-        this.logger.warn(`[WS] Connexion refusée — pas de token`);
+        this.logger.warn(`[WS] Connexion refusée — pas de token (socket.id=${client.id})`);
         client.disconnect();
         return;
       }
@@ -64,11 +64,22 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
 
       if (!user) {
+        this.logger.warn(`[WS] Connexion refusée — user introuvable sub=${payload.sub}`);
         client.disconnect();
         return;
       }
 
       client.data.user = user as AuthenticatedUser;
+
+      // Log explicite de connexion avec role/userId/socket.id
+      this.logger.log(
+        `🔌 ${user.role} ${user.id} connected, socket.id=${client.id}`,
+      );
+
+      // Auto-join room personnelle au format `${role.toLowerCase()}-${userId}`
+      const roleRoom = `${user.role.toLowerCase()}-${user.id}`;
+      await client.join(roleRoom);
+      this.logger.log(`🚪 Joined room: ${roleRoom}`);
 
       // Rooms personnelles — on rejoint les 2 formats (colon + hyphen) pour
       // couvrir tous les clients legacy/nouveaux sans casser l'existant.
@@ -96,9 +107,33 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       client.emit('connected', { userId: user.id, role: user.role });
-    } catch {
+    } catch (err) {
+      this.logger.warn(
+        `[WS] Connexion rejetée : ${(err as Error)?.message ?? 'unknown'} (socket.id=${client.id})`,
+      );
       client.disconnect();
     }
+  }
+
+  /**
+   * Fallback manuel : permet à un client d'émettre 'join' avec {userId, role}
+   * pour forcer l'entrée dans sa room personnelle. Utile si le JWT n'est pas
+   * encore intégré ou en cas de race condition côté front.
+   */
+  @SubscribeMessage('join')
+  handleManualJoin(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId?: string; role?: string },
+  ) {
+    if (!data?.userId || !data?.role) {
+      this.logger.warn(
+        `[WS] Manual join rejeté — payload invalide (socket.id=${client.id})`,
+      );
+      return;
+    }
+    const room = `${data.role.toLowerCase()}-${data.userId}`;
+    client.join(room);
+    this.logger.log(`🚪 Manual join: ${room} by ${client.id}`);
   }
 
   handleDisconnect(client: Socket) {
@@ -106,6 +141,37 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (user) {
       this.logger.log(`[WS] Déconnexion : ${user.id}`);
     }
+  }
+
+  /**
+   * Renvoie une vue inspectable de toutes les sockets connectées (pour debug).
+   * Utilisé par GET /admin/socket/debug.
+   */
+  getDebugInfo() {
+    const sockets: Array<{
+      socketId: string;
+      userId: string | null;
+      role: string | null;
+      rooms: string[];
+    }> = [];
+
+    const socketMap = this.server?.sockets?.sockets;
+    if (socketMap) {
+      for (const [socketId, socket] of socketMap) {
+        const user = (socket.data?.user as AuthenticatedUser | undefined) ?? null;
+        sockets.push({
+          socketId,
+          userId: user?.id ?? null,
+          role: user?.role ?? null,
+          rooms: Array.from(socket.rooms),
+        });
+      }
+    }
+
+    return {
+      totalConnections: sockets.length,
+      sockets,
+    };
   }
 
   @SubscribeMessage('rider:location')

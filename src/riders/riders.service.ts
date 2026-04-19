@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
@@ -33,6 +34,8 @@ const RIDER_COMMISSION = 0.8; // 80% des frais de livraison
 
 @Injectable()
 export class RidersService {
+  private readonly logger = new Logger(RidersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventsService: EventsService,
@@ -152,12 +155,15 @@ export class RidersService {
       plateNumber: riderUser?.riderProfile?.plateNumber ?? null,
     };
 
-    // 1) order:status → room commande + room cuisinière
+    // 1) order:status → room commande + cuisinière + client + livreur
     const orderStatusPayload = {
       orderId,
       status: OrderStatus.ASSIGNED,
       label: 'En livraison',
     };
+    this.logger.log(
+      `📡 emit('order:status') → rooms: order-${orderId}, cook-${order.cookId}, client-${order.clientId}, rider-${riderUserId} | payload: status=${OrderStatus.ASSIGNED}`,
+    );
     this.eventsService.emitToOrderRoom(orderId, 'order:status', orderStatusPayload);
     this.eventsService.notifyCook(order.cookId, 'order:status', orderStatusPayload);
     this.eventsService.notifyClient(order.clientId, 'order:status', {
@@ -165,14 +171,33 @@ export class RidersService {
       riderId: riderUserId,
       rider: riderPayload,
     });
+    this.eventsService.notifyRider(riderUserId, 'order:status', {
+      ...orderStatusPayload,
+      riderId: riderUserId,
+    });
 
-    // 2) order:assigned → cuisinière, avec infos livreur complètes
+    // 2) order:assigned → cuisinière, client, livreur
+    this.logger.log(
+      `📡 emit('order:assigned') → rooms: cook-${order.cookId}, client-${order.clientId}, rider-${riderUserId} | payload: orderId=${orderId} riderId=${riderUserId}`,
+    );
     this.eventsService.notifyCook(order.cookId, 'order:assigned', {
+      orderId,
+      rider: riderPayload,
+    });
+    this.eventsService.notifyClient(order.clientId, 'order:assigned', {
+      orderId,
+      riderId: riderUserId,
+      rider: riderPayload,
+    });
+    this.eventsService.notifyRider(riderUserId, 'order:assigned', {
       orderId,
       rider: riderPayload,
     });
 
     // 3) delivery:created → room personnelle du livreur (pour basculer en course active)
+    this.logger.log(
+      `📡 emit('delivery:created') → rooms: rider-${riderUserId} | payload: deliveryId=${delivery.id} orderId=${orderId}`,
+    );
     this.eventsService.notifyRider(riderUserId, 'delivery:created', {
       deliveryId: delivery.id,
       orderId,
@@ -290,7 +315,11 @@ export class RidersService {
       rider: riderPayload,
     };
 
-    // delivery:status → cuisinière, client, livreur
+    // delivery:status → room commande + cuisinière + client + livreur
+    this.logger.log(
+      `📡 emit('delivery:status') → rooms: order-${delivery.orderId}, cook-${delivery.order.cookId}, client-${delivery.order.clientId}, rider-${riderUserId} | payload: deliveryStatus=${newStatus}`,
+    );
+    this.eventsService.emitToOrderRoom(delivery.orderId, 'delivery:status', deliveryPayload);
     this.eventsService.notifyCook(delivery.order.cookId, 'delivery:status', deliveryPayload);
     this.eventsService.notifyClient(delivery.order.clientId, 'delivery:status', deliveryPayload);
     this.eventsService.notifyRider(riderUserId, 'delivery:status', deliveryPayload);
@@ -312,9 +341,13 @@ export class RidersService {
       rider: riderPayload,
     };
 
+    this.logger.log(
+      `📡 emit('order:status') → rooms: order-${delivery.orderId}, cook-${delivery.order.cookId}, client-${delivery.order.clientId}, rider-${riderUserId} | payload: status=${orderStatusForClient} deliveryStatus=${newStatus}`,
+    );
     this.eventsService.emitToOrderRoom(delivery.orderId, 'order:status', orderStatusPayload);
     this.eventsService.notifyClient(delivery.order.clientId, 'order:status', orderStatusPayload);
     this.eventsService.notifyCook(delivery.order.cookId, 'order:status', orderStatusPayload);
+    this.eventsService.notifyRider(riderUserId, 'order:status', orderStatusPayload);
 
     return result;
   }
@@ -418,6 +451,9 @@ export class RidersService {
         createdAt: true,
       },
     });
+    this.logger.log(
+      `📡 emit('message:new') → rooms: order-${orderId} | payload: senderRole=RIDER`,
+    );
     this.eventsService.emitToOrderRoom(orderId, 'message:new', { ...message, orderId });
     return message;
   }
