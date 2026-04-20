@@ -170,6 +170,7 @@ model User {
   partnerApplications PartnerApplication[]
   clientDisputes      Dispute[]            @relation("DisputeClient")
   supportTickets      SupportTicket[]
+  ratings             Rating[]             @relation("ClientRatings")
 }
 
 // 2. Quarter — quartier de Douala ou Yaoundé
@@ -282,6 +283,7 @@ model Order {
   payment      Payment?
   delivery     Delivery?
   reviews      Review[]
+  rating       Rating?
   chatMessages ChatMessage[]
   messages     OrderMessage[]
   disputes     Dispute[]
@@ -753,5 +755,26 @@ model DocumentUpload {
   originalName String?
   createdAt    DateTime @default(now())
 
+  @@index([createdAt])
+}
+
+// 26. Rating — notation post-livraison (3 notes + tags + commentaire)
+//
+// Soumise par le client via POST /orders/:id/rating une fois la commande
+// DELIVERED. 1-to-1 avec Order (un seul rating par commande).
+model Rating {
+  id              String   @id @default(uuid())
+  orderId         String   @unique
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          User     @relation("ClientRatings", fields: [clientId], references: [id])
+  riderStars      Int
+  restaurantStars Int
+  appStars        Int
+  comment         String?
+  tags            String[] @default([])
+  createdAt       DateTime @default(now())
+
+  @@index([clientId])
   @@index([createdAt])
 }

@@ -4,12 +4,14 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { OrderStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { paginatedResult, paginationParams } from '../common/pagination.helper';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
+import { SubmitRatingDto } from './dto/submit-rating.dto';
 import { EventsService } from '../events/events.service';
 
 const DELIVERY_FEE_XAF = 800; // MVP : frais fixes
@@ -498,5 +500,60 @@ export class OrdersService {
     if (!canAccess) throw new ForbiddenException('Accès non autorisé');
 
     return order;
+  }
+
+  /**
+   * POST /orders/:id/rating — notation post-livraison (client uniquement).
+   *
+   * Règles :
+   *  - La commande doit appartenir au client authentifié.
+   *  - La commande doit être en statut DELIVERED.
+   *  - Un seul rating par commande (409 ALREADY_RATED sinon).
+   */
+  async submitRating(
+    orderId: string,
+    clientId: string,
+    dto: SubmitRatingDto,
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, clientId: true, status: true },
+    });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (order.clientId !== clientId) {
+      throw new ForbiddenException('Cette commande ne vous appartient pas');
+    }
+    if (order.status !== OrderStatus.DELIVERED) {
+      throw new BadRequestException(
+        'La commande doit être livrée pour être notée',
+      );
+    }
+
+    const existing = await this.prisma.rating.findUnique({
+      where: { orderId },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException({ error: 'ALREADY_RATED' });
+    }
+
+    const rating = await this.prisma.rating.create({
+      data: {
+        orderId,
+        clientId,
+        riderStars: dto.riderStars,
+        restaurantStars: dto.restaurantStars,
+        appStars: dto.appStars,
+        comment: dto.comment?.trim() || null,
+        tags: dto.tags ?? [],
+      },
+    });
+
+    this.logger.log(
+      `⭐ rating submitted → order=${orderId} client=${clientId} ` +
+        `rider=${dto.riderStars}/5 restaurant=${dto.restaurantStars}/5 app=${dto.appStars}/5`,
+    );
+
+    return { ok: true, rating };
   }
 }

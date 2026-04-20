@@ -19,6 +19,7 @@ import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { SubmitRatingDto } from './dto/submit-rating.dto';
 
 interface AuthUser {
   id: string;
@@ -103,6 +104,23 @@ export class OrdersController {
   @HttpCode(HttpStatus.OK)
   deliver(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.ordersService.riderDeliver(id, user.id);
+  }
+
+  /**
+   * POST /orders/:id/rating — notation post-livraison par le client.
+   * Body : { riderStars, restaurantStars, appStars, comment?, tags? }
+   * Retourne : { ok: true, rating: {...} } (ou 409 ALREADY_RATED).
+   */
+  @Post(':id/rating')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.CLIENT)
+  @HttpCode(HttpStatus.CREATED)
+  submitRating(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SubmitRatingDto,
+  ) {
+    return this.ordersService.submitRating(id, user.id, dto);
   }
 }
 
