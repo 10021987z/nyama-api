@@ -758,6 +758,25 @@ model DocumentUpload {
   @@index([createdAt])
 }
 
+// 27. OrderIntervention — trace d'une intervention admin sur une commande
+//
+// Enregistré à chaque action admin via POST /admin/orders/:id/intervene
+// (force_cancel, reassign_rider, extend_deadline, refund, notify_all).
+// Stocke le `payload` JSON (chaîne sérialisée) pour audit complet.
+model OrderIntervention {
+  id        String   @id @default(uuid())
+  orderId   String
+  adminId   String
+  action    String // force_cancel | reassign_rider | extend_deadline | refund | notify_all
+  reason    String
+  payload   String? // JSON sérialisé des paramètres additionnels
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([adminId])
+  @@index([createdAt])
+}
+
 // 26. Rating — notation post-livraison (3 notes + tags + commentaire)
 //
 // Soumise par le client via POST /orders/:id/rating une fois la commande

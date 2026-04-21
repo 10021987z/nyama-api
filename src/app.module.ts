@@ -23,6 +23,7 @@ import { PartnershipsModule } from './partnerships/partnerships.module';
 import { EventsModule } from './events/events.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
+import { AdminLiveModule } from './admin-live/admin-live.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { OnboardingModule } from './onboarding/onboarding.module';
     PartnershipsModule,
     UploadsModule,
     OnboardingModule,
+    AdminLiveModule,
   ],
   controllers: [AppController],
   providers: [AppService],

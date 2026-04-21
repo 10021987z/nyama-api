@@ -106,6 +106,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.logger.log(`[WS] Client connecté : ${user.name ?? user.id}`);
       }
 
+      if (user.role === UserRole.ADMIN) {
+        await client.join('admin');
+        await client.join(`admin-${user.id}`);
+        this.logger.log(`[WS] Admin connecté : ${user.name ?? user.id} → room 'admin'`);
+      }
+
       client.emit('connected', { userId: user.id, role: user.role });
     } catch (err) {
       this.logger.warn(
