@@ -87,8 +87,25 @@ export class CookController {
     return this.cooksService.getCookMenu(user.id);
   }
 
+  /**
+   * Liste tous les plats du cook connecté (y compris indisponibles).
+   * Route canonique utilisée par l'app Pro.
+   */
+  @Get('menu-items')
+  getMenuItems(@CurrentUser() user: AuthUser) {
+    return this.cooksService.getCookMenu(user.id);
+  }
+
   @Post('menu/items')
   createMenuItem(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateMenuItemDto,
+  ) {
+    return this.cooksService.createMenuItem(user.id, dto);
+  }
+
+  @Post('menu-items')
+  createMenuItemAlias(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateMenuItemDto,
   ) {
@@ -104,9 +121,24 @@ export class CookController {
     return this.cooksService.updateMenuItem(id, user.id, dto);
   }
 
+  @Patch('menu-items/:id')
+  updateMenuItemAlias(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateMenuItemDto,
+  ) {
+    return this.cooksService.updateMenuItem(id, user.id, dto);
+  }
+
   @Delete('menu/items/:id')
   @HttpCode(HttpStatus.OK)
   deleteMenuItem(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.cooksService.softDeleteMenuItem(id, user.id);
+  }
+
+  @Delete('menu-items/:id')
+  @HttpCode(HttpStatus.OK)
+  deleteMenuItemAlias(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.cooksService.softDeleteMenuItem(id, user.id);
   }
 

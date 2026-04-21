@@ -45,6 +45,26 @@ export class EventsService {
   }
 
   /**
+   * Émet un `menu:updated` vers la room du cook concerné ET en broadcast
+   * global pour que toute app Client connectée (qu'elle consulte ce resto
+   * ou non) soit prévenue et re-fetch le menu si pertinent pour elle.
+   */
+  emitMenuUpdated(
+    cookId: string,
+    action: 'created' | 'updated' | 'deleted' | 'availability',
+    menuItem: unknown,
+  ): void {
+    const payload = { cookId, action, menuItem };
+    this.logger.log(
+      `📡 emit('menu:updated') → cook-${cookId} + broadcast | action=${action}`,
+    );
+    this.server?.to(`cook:${cookId}`).emit('menu:updated', payload);
+    this.server?.to(`cook-${cookId}`).emit('menu:updated', payload);
+    // Broadcast à tous les sockets (clients consulteront s'ils regardent ce cook)
+    this.server?.emit('menu:updated', payload);
+  }
+
+  /**
    * Notifie les livreurs disponibles d'une nouvelle commande READY.
    * Si quarterId fourni → room du quartier, sinon → tous les livreurs.
    */

@@ -351,11 +351,33 @@ export class CooksService {
     });
   }
 
+  /**
+   * Menu public d'un cook (utilisé par l'app Client).
+   * `cookProfileId` est l'id du CookProfile (pas du User).
+   */
+  async getPublicMenuItems(cookProfileId: string, includeUnavailable: boolean) {
+    const cook = await this.prisma.cookProfile.findUnique({
+      where: { id: cookProfileId },
+      select: { id: true },
+    });
+    if (!cook) throw new NotFoundException('Cuisinière introuvable');
+
+    return this.prisma.menuItem.findMany({
+      where: {
+        cookId: cookProfileId,
+        ...(includeUnavailable ? {} : { isAvailable: true }),
+      },
+      orderBy: [{ category: 'asc' }, { name: 'asc' }],
+    });
+  }
+
   async createMenuItem(cookUserId: string, dto: CreateMenuItemDto) {
     const profile = await this.getCookProfile(cookUserId);
-    return this.prisma.menuItem.create({
+    const created = await this.prisma.menuItem.create({
       data: { ...dto, cookId: profile.id },
     });
+    this.eventsService.emitMenuUpdated(profile.id, 'created', created);
+    return created;
   }
 
   async updateMenuItem(
@@ -369,7 +391,12 @@ export class CooksService {
     if (item.cookId !== profile.id)
       throw new ForbiddenException('Ce plat ne vous appartient pas');
 
-    return this.prisma.menuItem.update({ where: { id: itemId }, data: dto });
+    const updated = await this.prisma.menuItem.update({
+      where: { id: itemId },
+      data: dto,
+    });
+    this.eventsService.emitMenuUpdated(profile.id, 'updated', updated);
+    return updated;
   }
 
   async softDeleteMenuItem(itemId: string, cookUserId: string) {
@@ -379,10 +406,21 @@ export class CooksService {
     if (item.cookId !== profile.id)
       throw new ForbiddenException('Ce plat ne vous appartient pas');
 
-    return this.prisma.menuItem.update({
-      where: { id: itemId },
-      data: { isAvailable: false },
-    });
+    // Suppression physique : l'app Pro attend un DELETE qui retire vraiment
+    // le plat. Si des OrderItem référencent ce menuItem (FK), on retombe sur
+    // une désactivation (soft delete).
+    try {
+      const deleted = await this.prisma.menuItem.delete({ where: { id: itemId } });
+      this.eventsService.emitMenuUpdated(profile.id, 'deleted', deleted);
+      return deleted;
+    } catch {
+      const soft = await this.prisma.menuItem.update({
+        where: { id: itemId },
+        data: { isAvailable: false },
+      });
+      this.eventsService.emitMenuUpdated(profile.id, 'updated', soft);
+      return soft;
+    }
   }
 
   async setMenuItemAvailability(
@@ -396,13 +434,15 @@ export class CooksService {
     if (item.cookId !== profile.id)
       throw new ForbiddenException('Ce plat ne vous appartient pas');
 
-    return this.prisma.menuItem.update({
+    const updated = await this.prisma.menuItem.update({
       where: { id: itemId },
       data: {
         isAvailable: dto.available,
         unavailableReason: dto.available ? null : dto.reason ?? null,
       },
     });
+    this.eventsService.emitMenuUpdated(profile.id, 'availability', updated);
+    return updated;
   }
 
   // ─── STATS ───────────────────────────────────────────────

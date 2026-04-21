@@ -1,4 +1,4 @@
-import { IsString, IsInt, IsOptional, Min, IsUrl, IsBoolean } from 'class-validator';
+import { IsString, IsInt, IsOptional, Min, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateMenuItemDto {
@@ -20,8 +20,9 @@ export class UpdateMenuItemDto {
   @IsString()
   category?: string;
 
+  // Peut être une URL http(s) ou un chemin relatif type /uploads/<id>.jpg.
   @IsOptional()
-  @IsUrl()
+  @IsString()
   imageUrl?: string;
 
   @IsOptional()

@@ -15,4 +15,19 @@ export class CooksController {
   findOne(@Param('id') id: string) {
     return this.cooksService.findById(id);
   }
+
+  /**
+   * Menu d'un restaurant (public, pour l'app Client).
+   * Par défaut `isAvailable=true`. `?includeUnavailable=true` renvoie tout
+   * (utile pour afficher les plats grisés "Indisponible").
+   */
+  @Get(':id/menu-items')
+  listMenuItems(
+    @Param('id') id: string,
+    @Query('includeUnavailable') includeUnavailable?: string,
+  ) {
+    const include =
+      includeUnavailable === 'true' || includeUnavailable === '1';
+    return this.cooksService.getPublicMenuItems(id, include);
+  }
 }
