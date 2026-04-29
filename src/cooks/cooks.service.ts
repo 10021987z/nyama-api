@@ -678,4 +678,80 @@ export class CooksService {
     this.eventsService.emitToOrderRoom(orderId, 'message:new', { ...message, orderId });
     return message;
   }
+
+  // ─── Cook profile (self) ─────────────────────────────────────────
+  // Endpoints consommés par l'app Pro (restaurant_presentation_screen).
+
+  async getCookProfileSelf(cookUserId: string) {
+    const profile = await this.getCookProfile(cookUserId);
+    // Renvoie le profile + le phone du User pour que le formulaire app puisse
+    // pré-remplir le champ téléphone. specialty et openingHours sont parsés
+    // côté serveur pour économiser un parse au client (l'app accepte les 2).
+    const user = await this.prisma.user.findUnique({
+      where: { id: cookUserId },
+      select: { phone: true },
+    });
+    let specialty: string[] = [];
+    try {
+      const parsed = JSON.parse(profile.specialty || '[]');
+      if (Array.isArray(parsed)) specialty = parsed.map(String);
+    } catch {
+      specialty = [];
+    }
+    let openingHours: Record<string, unknown> | null = null;
+    if (profile.openingHours) {
+      try {
+        openingHours = JSON.parse(profile.openingHours);
+      } catch {
+        openingHours = null;
+      }
+    }
+    return {
+      ...profile,
+      phone: user?.phone ?? null,
+      specialty,
+      openingHours,
+    };
+  }
+
+  async updateCookProfileSelf(
+    cookUserId: string,
+    dto: import('./dto/update-cook-profile.dto').UpdateCookProfileDto,
+  ) {
+    const profile = await this.getCookProfile(cookUserId);
+
+    const data: Prisma.CookProfileUpdateInput = {};
+    if (dto.displayName !== undefined) data.displayName = dto.displayName;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.landmark !== undefined) data.landmark = dto.landmark;
+    if (dto.prepTimeAvgMin !== undefined)
+      data.prepTimeAvgMin = dto.prepTimeAvgMin;
+    if (dto.specialty !== undefined)
+      data.specialty = JSON.stringify(dto.specialty);
+    if (dto.openingHours !== undefined)
+      data.openingHours = JSON.stringify(dto.openingHours);
+
+    const updated = await this.prisma.cookProfile.update({
+      where: { id: profile.id },
+      data,
+    });
+
+    // phone est sur User, pas CookProfile — propagation optionnelle si fourni.
+    if (dto.phone !== undefined && dto.phone.trim()) {
+      try {
+        await this.prisma.user.update({
+          where: { id: cookUserId },
+          data: { phone: dto.phone.trim() },
+        });
+      } catch (e) {
+        // Conflit de phone unique: on ignore en silence côté backend, l'app
+        // continue de fonctionner avec le phone précédent.
+        this.logger.warn(
+          `phone update skipped for ${cookUserId}: ${(e as Error).message}`,
+        );
+      }
+    }
+
+    return this.getCookProfileSelf(cookUserId);
+  }
 }

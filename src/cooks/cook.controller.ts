@@ -24,6 +24,7 @@ import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { SetAvailabilityDto } from './dto/set-availability.dto';
 import { SetRushDto } from './dto/set-rush.dto';
 import { SendOrderMessageDto } from './dto/send-order-message.dto';
+import { UpdateCookProfileDto } from './dto/update-cook-profile.dto';
 
 interface AuthUser {
   id: string;
@@ -94,6 +95,28 @@ export class CookController {
   @Get('menu-items')
   getMenuItems(@CurrentUser() user: AuthUser) {
     return this.cooksService.getCookMenu(user.id);
+  }
+
+  // Alias attendu par l'app Pro (lib/core/constants/api_constants.dart):
+  // ApiConstants.cookMenuItems = '/cook/menu/items'
+  @Get('menu/items')
+  getMenuItemsAlias(@CurrentUser() user: AuthUser) {
+    return this.cooksService.getCookMenu(user.id);
+  }
+
+  // ─── Cook profile (self) — consommé par restaurant_presentation_screen ──
+
+  @Get('profile')
+  getMyCookProfile(@CurrentUser() user: AuthUser) {
+    return this.cooksService.getCookProfileSelf(user.id);
+  }
+
+  @Patch('profile')
+  updateMyCookProfile(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateCookProfileDto,
+  ) {
+    return this.cooksService.updateCookProfileSelf(user.id, dto);
   }
 
   @Post('menu/items')
