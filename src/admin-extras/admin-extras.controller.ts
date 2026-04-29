@@ -15,6 +15,11 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AdminExtrasService } from './admin-extras.service';
+import { BroadcastCookDto } from './dto/broadcast-cook.dto';
+import { BroadcastRidersDto } from './dto/broadcast-riders.dto';
+import { SendAdminMessageDto } from './dto/send-admin-message.dto';
+import { CreateCampaignDto } from './dto/create-campaign.dto';
+import { DailyReportDto } from './dto/daily-report.dto';
 
 interface AuthUser {
   id: string;
@@ -120,5 +125,52 @@ export class AdminExtrasController {
   @Get('ai/predict-tomorrow')
   predictTomorrow() {
     return this.extras.predictTomorrow();
+  }
+
+  // ─── Broadcasts & messagerie admin ───────────────────────────────
+  // Émission éphémère via WebSocket. Voir admin-extras.service.ts pour le
+  // détail des rooms ciblées.
+
+  @Post('broadcast/cook/:id')
+  @HttpCode(HttpStatus.OK)
+  broadcastToCook(
+    @Param('id') cookId: string,
+    @Body() dto: BroadcastCookDto,
+    @CurrentUser() admin: AuthUser,
+  ) {
+    return this.extras.broadcastToCook(cookId, dto.message, admin.id);
+  }
+
+  @Post('broadcast/riders')
+  @HttpCode(HttpStatus.OK)
+  broadcastToRiders(
+    @Body() dto: BroadcastRidersDto,
+    @CurrentUser() admin: AuthUser,
+  ) {
+    return this.extras.broadcastToRiders(dto.message, admin.id, dto.quarterId);
+  }
+
+  @Post('messages')
+  @HttpCode(HttpStatus.OK)
+  sendDirectMessage(
+    @Body() dto: SendAdminMessageDto,
+    @CurrentUser() admin: AuthUser,
+  ) {
+    return this.extras.sendDirectMessage(dto, admin.id);
+  }
+
+  @Post('campaigns')
+  @HttpCode(HttpStatus.OK)
+  createCampaign(
+    @Body() dto: CreateCampaignDto,
+    @CurrentUser() admin: AuthUser,
+  ) {
+    return this.extras.createCampaign(dto, admin.id);
+  }
+
+  @Post('reports/daily')
+  @HttpCode(HttpStatus.OK)
+  generateDailyReport(@Body() dto: DailyReportDto) {
+    return this.extras.generateDailyReport(dto.date, dto.to);
   }
 }

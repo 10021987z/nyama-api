@@ -1,6 +1,21 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
-import { OrderStatus, DeliveryStatus, Prisma } from '@prisma/client';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
+import { OrderStatus, DeliveryStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventsService } from '../events/events.service';
+import {
+  AdminMessageChannel,
+  SendAdminMessageDto,
+} from './dto/send-admin-message.dto';
+import {
+  CampaignChannel,
+  CampaignSegment,
+  CreateCampaignDto,
+} from './dto/create-campaign.dto';
 
 const COMMISSION_RATE_DEFAULT = 0.15;
 const RIDER_FEE_PER_DELIVERY = 800;
@@ -16,6 +31,8 @@ type CrisisState = {
 
 @Injectable()
 export class AdminExtrasService {
+  private readonly logger = new Logger(AdminExtrasService.name);
+
   // Mode crise — état en mémoire (suffisant pour pilote, perdu au redémarrage)
   private crisis: CrisisState = {
     active: false,
@@ -25,7 +42,10 @@ export class AdminExtrasService {
     triggeredBy: null,
   };
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: EventsService,
+  ) {}
 
   // ─── 1) Commissions par cook (sur orders DELIVERED) ────────
   async getCommissions(period: '30d' | '7d' = '30d') {
@@ -518,5 +538,311 @@ export class AdminExtrasService {
 
     const weekLabel = `${year}-W${String(week).padStart(2, '0')}`;
     return { start, end, weekLabel };
+  }
+
+  // ─── Broadcasts & messagerie admin ────────────────────────────────
+  // Émission éphémère via WebSocket (rooms cook-{userId}, rider-{userId},
+  // client-{userId}, riders:all). Pas de persistance pour ce premier livrable.
+
+  async broadcastToCook(
+    cookIdentifier: string,
+    message: string,
+    fromAdminId: string,
+  ) {
+    // Le dashboard envoie soit CookProfile.id (cp-...), soit user.id (u-...).
+    // On résout dans les deux sens vers le userId qui sert de clé de room.
+    const profile = await this.prisma.cookProfile.findFirst({
+      where: { OR: [{ id: cookIdentifier }, { userId: cookIdentifier }] },
+      select: { id: true, userId: true, displayName: true },
+    });
+    if (!profile) {
+      throw new NotFoundException(`Cook introuvable: ${cookIdentifier}`);
+    }
+
+    const payload = {
+      message,
+      fromAdminId,
+      sentAt: new Date().toISOString(),
+    };
+    this.events.notifyCook(profile.userId, 'admin:broadcast', payload);
+    this.logger.log(
+      `📣 broadcast → cook ${profile.userId} (${profile.displayName}) by ${fromAdminId}`,
+    );
+
+    return {
+      ok: true,
+      cookProfileId: profile.id,
+      cookUserId: profile.userId,
+      cookName: profile.displayName,
+      sentAt: payload.sentAt,
+    };
+  }
+
+  async broadcastToRiders(
+    message: string,
+    fromAdminId: string,
+    quarterId?: string,
+  ) {
+    const payload = {
+      message,
+      fromAdminId,
+      sentAt: new Date().toISOString(),
+      scope: quarterId ? `quarter:${quarterId}` : 'all',
+    };
+    this.events.notifyAvailableRiders(
+      quarterId ?? null,
+      'admin:broadcast',
+      payload,
+    );
+    this.logger.log(
+      `📣 broadcast → riders (${payload.scope}) by ${fromAdminId}`,
+    );
+
+    // Compte indicatif des riders actifs (online ces 10 dernières min) pour
+    // donner un feedback à l'UI admin.
+    const since = new Date(Date.now() - 10 * 60 * 1000);
+    const reachedEstimate = await this.prisma.riderProfile.count({
+      where: {
+        OR: [{ isOnline: true }, { lastSeenAt: { gte: since } }],
+      },
+    });
+
+    return {
+      ok: true,
+      scope: payload.scope,
+      reachedEstimate,
+      sentAt: payload.sentAt,
+    };
+  }
+
+  async sendDirectMessage(dto: SendAdminMessageDto, fromAdminId: string) {
+    const recipientId = dto.userId ?? dto.to;
+    if (!recipientId) {
+      throw new BadRequestException(
+        'userId ou to est requis pour /admin/messages',
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: recipientId },
+      select: { id: true, role: true, name: true, phone: true },
+    });
+    if (!user) {
+      throw new NotFoundException(`Destinataire introuvable: ${recipientId}`);
+    }
+
+    const payload = {
+      from: fromAdminId,
+      subject: dto.subject ?? null,
+      body: dto.body,
+      channel: dto.channel ?? AdminMessageChannel.INAPP,
+      sentAt: new Date().toISOString(),
+    };
+
+    switch (user.role) {
+      case UserRole.COOK:
+        this.events.notifyCook(user.id, 'admin:message', payload);
+        break;
+      case UserRole.RIDER:
+        this.events.notifyRider(user.id, 'admin:message', payload);
+        break;
+      case UserRole.CLIENT:
+        this.events.notifyClient(user.id, 'admin:message', payload);
+        break;
+      default:
+        // Admin recipient: rooted to admin room only (already mirrored).
+        this.events.emitToAdmin('admin:message', { ...payload, to: user.id });
+    }
+
+    this.logger.log(
+      `✉️ admin:message → ${user.role} ${user.id} (${user.name}) by ${fromAdminId} | channel=${payload.channel}`,
+    );
+
+    // Note: le canal SMS/EMAIL/PUSH n'est pas branché — pour l'instant tous
+    // les canaux passent par le socket inapp. Quand un adapter FCM/SMS sera
+    // dispo (NotificationsService est aujourd'hui un stub), on ajoutera la
+    // dispatche ici.
+    return {
+      ok: true,
+      recipientId: user.id,
+      recipientRole: user.role,
+      channel: payload.channel,
+      sentAt: payload.sentAt,
+    };
+  }
+
+  async createCampaign(dto: CreateCampaignDto, fromAdminId: string) {
+    // Estime l'audience via la définition de segment client. On ne persiste
+    // pas la campagne (pas encore de modèle Prisma Campaign) — l'endpoint
+    // retourne un ack "queued" pour ne plus 404 et permettre au dashboard de
+    // valider l'UX. Le dispatch réel SMS/email viendra avec l'infra mass-mail.
+    const audienceCount = await this.estimateCampaignAudience(dto.segment);
+
+    this.logger.log(
+      `📢 campaign queued: segment=${dto.segment} channel=${dto.channel} audience=${audienceCount} by ${fromAdminId}`,
+    );
+
+    return {
+      ok: true,
+      queued: true,
+      segment: dto.segment,
+      channel: dto.channel,
+      audienceCount,
+      subject: dto.subject ?? null,
+      bodyPreview: dto.body.slice(0, 80),
+      // Honnêteté UX: on dit explicitement que le dispatch n'est pas encore réel.
+      dispatch: 'pending-infra',
+      queuedAt: new Date().toISOString(),
+    };
+  }
+
+  private async estimateCampaignAudience(
+    segment: CampaignSegment,
+  ): Promise<number> {
+    if (segment === CampaignSegment.ALL) {
+      return this.prisma.user.count({ where: { role: UserRole.CLIENT } });
+    }
+
+    // Heuristiques simples basées sur l'historique commandes.
+    const now = new Date();
+    const days30 = new Date(now.getTime() - 30 * 86400000);
+    const days60 = new Date(now.getTime() - 60 * 86400000);
+    const days180 = new Date(now.getTime() - 180 * 86400000);
+
+    if (segment === CampaignSegment.VIP) {
+      // Clients ayant ≥ 5 commandes DELIVERED dans les 30j.
+      const groups = await this.prisma.order.groupBy({
+        by: ['clientId'],
+        where: {
+          status: OrderStatus.DELIVERED,
+          createdAt: { gte: days30 },
+        },
+        _count: { id: true },
+      });
+      return groups.filter((g) => g._count.id >= 5).length;
+    }
+    if (segment === CampaignSegment.AT_RISK) {
+      // Clients commandés entre 60j et 30j, pas depuis 30j.
+      const recent = await this.prisma.order.findMany({
+        where: { createdAt: { gte: days30 } },
+        select: { clientId: true },
+        distinct: ['clientId'],
+      });
+      const recentSet = new Set(recent.map((r) => r.clientId));
+      const olderActive = await this.prisma.order.findMany({
+        where: { createdAt: { gte: days60, lt: days30 } },
+        select: { clientId: true },
+        distinct: ['clientId'],
+      });
+      return olderActive.filter((u) => !recentSet.has(u.clientId)).length;
+    }
+    // LOST: dernière commande > 60j et < 180j.
+    const recent = await this.prisma.order.findMany({
+      where: { createdAt: { gte: days60 } },
+      select: { clientId: true },
+      distinct: ['clientId'],
+    });
+    const recentSet = new Set(recent.map((r) => r.clientId));
+    const lost = await this.prisma.order.findMany({
+      where: { createdAt: { gte: days180, lt: days60 } },
+      select: { clientId: true },
+      distinct: ['clientId'],
+    });
+    return lost.filter((u) => !recentSet.has(u.clientId)).length;
+  }
+
+  async generateDailyReport(dateIso?: string, to?: string) {
+    const day = dateIso ? new Date(dateIso) : new Date();
+    if (Number.isNaN(day.getTime())) {
+      throw new BadRequestException('Date invalide (attendu ISO YYYY-MM-DD)');
+    }
+    const start = new Date(
+      Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()),
+    );
+    const end = new Date(start);
+    end.setUTCDate(start.getUTCDate() + 1);
+
+    const [
+      ordersTotal,
+      ordersDelivered,
+      ordersCancelled,
+      revenueAgg,
+      newUsers,
+      topCookGroups,
+    ] = await Promise.all([
+      this.prisma.order.count({ where: { createdAt: { gte: start, lt: end } } }),
+      this.prisma.order.count({
+        where: {
+          createdAt: { gte: start, lt: end },
+          status: OrderStatus.DELIVERED,
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          createdAt: { gte: start, lt: end },
+          status: OrderStatus.CANCELLED,
+        },
+      }),
+      this.prisma.order.aggregate({
+        where: {
+          createdAt: { gte: start, lt: end },
+          status: OrderStatus.DELIVERED,
+        },
+        _sum: { totalXaf: true, deliveryFeeXaf: true },
+      }),
+      this.prisma.user.count({ where: { createdAt: { gte: start, lt: end } } }),
+      this.prisma.order.groupBy({
+        by: ['cookId'],
+        where: {
+          createdAt: { gte: start, lt: end },
+          status: OrderStatus.DELIVERED,
+        },
+        _sum: { totalXaf: true },
+        _count: { id: true },
+        orderBy: { _sum: { totalXaf: 'desc' } },
+        take: 5,
+      }),
+    ]);
+
+    const cookProfiles = await this.prisma.cookProfile.findMany({
+      where: { userId: { in: topCookGroups.map((g) => g.cookId) } },
+      select: { userId: true, displayName: true },
+    });
+    const topCooks = topCookGroups.map((g) => ({
+      cookUserId: g.cookId,
+      name:
+        cookProfiles.find((p) => p.userId === g.cookId)?.displayName ?? '—',
+      orders: g._count.id,
+      grossXaf: g._sum.totalXaf ?? 0,
+    }));
+
+    const grossXaf = revenueAgg._sum.totalXaf ?? 0;
+    const deliveryFeesXaf = revenueAgg._sum.deliveryFeeXaf ?? 0;
+    const successRate =
+      ordersTotal > 0 ? Math.round((ordersDelivered / ordersTotal) * 1000) / 10 : 0;
+
+    this.logger.log(
+      `📊 daily report ${start.toISOString().slice(0, 10)} | orders=${ordersTotal} delivered=${ordersDelivered} grossXaf=${grossXaf}${to ? ` to=${to}` : ''}`,
+    );
+
+    return {
+      date: start.toISOString().slice(0, 10),
+      generatedAt: new Date().toISOString(),
+      // Note honnêteté UX: pas d'envoi email pour cette version.
+      delivery: to
+        ? { to, status: 'pending-infra' }
+        : { to: null, status: 'inline' },
+      summary: {
+        ordersTotal,
+        ordersDelivered,
+        ordersCancelled,
+        successRate,
+        grossXaf,
+        deliveryFeesXaf,
+        netPlatformXaf: Math.round(grossXaf * COMMISSION_RATE_DEFAULT),
+        newUsers,
+      },
+      topCooks,
+    };
   }
 }
