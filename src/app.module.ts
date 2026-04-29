@@ -24,6 +24,7 @@ import { EventsModule } from './events/events.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { AdminLiveModule } from './admin-live/admin-live.module';
+import { AdminExtrasModule } from './admin-extras/admin-extras.module';
 import { AiModule } from './ai/ai.module';
 
 @Module({
@@ -51,6 +52,7 @@ import { AiModule } from './ai/ai.module';
     UploadsModule,
     OnboardingModule,
     AdminLiveModule,
+    AdminExtrasModule,
     AiModule,
   ],
   controllers: [AppController],
