@@ -777,6 +777,28 @@ model OrderIntervention {
   @@index([createdAt])
 }
 
+// AdminMessage — message admin → utilisateur (cook / rider / client / admin)
+//
+// Émis par POST /admin/messages avec dispatch socket sur la room du rôle.
+// Persistance pour permettre l'historique côté dashboard (chat, support).
+// Le canal SMS/EMAIL/PUSH n'est pas branché aujourd'hui (NotificationsService
+// est un stub) — `channel` est conservé pour la trace UX.
+model AdminMessage {
+  id            String    @id @default(uuid())
+  fromAdminId   String
+  recipientId   String
+  recipientRole UserRole
+  channel       String    @default("inapp") // inapp | push | sms | email
+  subject       String?
+  body          String
+  sentAt        DateTime  @default(now())
+  readAt        DateTime?
+
+  @@index([recipientId])
+  @@index([fromAdminId])
+  @@index([sentAt])
+}
+
 // 26. Rating — notation post-livraison (3 notes + tags + commentaire)
 //
 // Soumise par le client via POST /orders/:id/rating une fois la commande

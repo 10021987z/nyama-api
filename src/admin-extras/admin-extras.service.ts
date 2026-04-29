@@ -631,43 +631,88 @@ export class AdminExtrasService {
       throw new NotFoundException(`Destinataire introuvable: ${recipientId}`);
     }
 
-    const payload = {
+    const channel = dto.channel ?? AdminMessageChannel.INAPP;
+
+    // Persistance pour permettre l'historique côté dashboard.
+    const persisted = await this.prisma.adminMessage.create({
+      data: {
+        fromAdminId,
+        recipientId: user.id,
+        recipientRole: user.role,
+        channel,
+        subject: dto.subject ?? null,
+        body: dto.body,
+      },
+    });
+
+    const socketPayload = {
+      id: persisted.id,
       from: fromAdminId,
-      subject: dto.subject ?? null,
-      body: dto.body,
-      channel: dto.channel ?? AdminMessageChannel.INAPP,
-      sentAt: new Date().toISOString(),
+      subject: persisted.subject,
+      body: persisted.body,
+      channel: persisted.channel,
+      sentAt: persisted.sentAt.toISOString(),
     };
 
     switch (user.role) {
       case UserRole.COOK:
-        this.events.notifyCook(user.id, 'admin:message', payload);
+        this.events.notifyCook(user.id, 'admin:message', socketPayload);
         break;
       case UserRole.RIDER:
-        this.events.notifyRider(user.id, 'admin:message', payload);
+        this.events.notifyRider(user.id, 'admin:message', socketPayload);
         break;
       case UserRole.CLIENT:
-        this.events.notifyClient(user.id, 'admin:message', payload);
+        this.events.notifyClient(user.id, 'admin:message', socketPayload);
         break;
       default:
-        // Admin recipient: rooted to admin room only (already mirrored).
-        this.events.emitToAdmin('admin:message', { ...payload, to: user.id });
+        this.events.emitToAdmin('admin:message', {
+          ...socketPayload,
+          to: user.id,
+        });
     }
 
     this.logger.log(
-      `✉️ admin:message → ${user.role} ${user.id} (${user.name}) by ${fromAdminId} | channel=${payload.channel}`,
+      `✉️ admin:message → ${user.role} ${user.id} (${user.name}) by ${fromAdminId} | channel=${channel} id=${persisted.id}`,
     );
 
-    // Note: le canal SMS/EMAIL/PUSH n'est pas branché — pour l'instant tous
-    // les canaux passent par le socket inapp. Quand un adapter FCM/SMS sera
-    // dispo (NotificationsService est aujourd'hui un stub), on ajoutera la
-    // dispatche ici.
+    // Note: les canaux SMS/EMAIL/PUSH ne sont pas branchés — tous passent par
+    // le socket inapp. Le champ `channel` est persisté pour la trace UX et
+    // pourra déclencher une dispatche externe quand NotificationsService sera
+    // implémenté.
     return {
       ok: true,
+      id: persisted.id,
       recipientId: user.id,
       recipientRole: user.role,
-      channel: payload.channel,
-      sentAt: payload.sentAt,
+      channel: persisted.channel,
+      sentAt: persisted.sentAt.toISOString(),
+    };
+  }
+
+  async getMessageHistory(userId: string, limit = 50) {
+    const cap = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const messages = await this.prisma.adminMessage.findMany({
+      where: { recipientId: userId },
+      orderBy: { sentAt: 'desc' },
+      take: cap,
+      select: {
+        id: true,
+        fromAdminId: true,
+        recipientId: true,
+        recipientRole: true,
+        channel: true,
+        subject: true,
+        body: true,
+        sentAt: true,
+        readAt: true,
+      },
+    });
+
+    return {
+      userId,
+      count: messages.length,
+      // Ordre chronologique pour rendu chat (oldest → newest).
+      messages: messages.reverse(),
     };
   }
 

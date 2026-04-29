@@ -159,6 +159,14 @@ export class AdminExtrasController {
     return this.extras.sendDirectMessage(dto, admin.id);
   }
 
+  @Get('messages/:userId')
+  getMessageHistory(
+    @Param('userId') userId: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.extras.getMessageHistory(userId, Number(limit) || 50);
+  }
+
   @Post('campaigns')
   @HttpCode(HttpStatus.OK)
   createCampaign(
