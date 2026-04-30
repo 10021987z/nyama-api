@@ -556,4 +556,85 @@ export class OrdersService {
 
     return { ok: true, rating };
   }
+
+  // ─── Chat sur une commande (client ↔ cook ↔ rider) ─────────────────
+  // Persistance via OrderMessage, dispatch socket sur room `order-{id}`.
+
+  private async assertOrderParticipant(
+    orderId: string,
+    userId: string,
+    role: UserRole,
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, clientId: true, cookId: true, riderId: true },
+    });
+    if (!order) throw new NotFoundException('Commande introuvable');
+    if (role === UserRole.ADMIN) return order;
+
+    const allowed =
+      (role === UserRole.CLIENT && order.clientId === userId) ||
+      (role === UserRole.COOK && order.cookId === userId) ||
+      (role === UserRole.RIDER && order.riderId === userId);
+    if (!allowed) {
+      throw new ForbiddenException('Accès refusé à cette commande');
+    }
+    return order;
+  }
+
+  async listOrderMessages(orderId: string, userId: string, role: UserRole) {
+    await this.assertOrderParticipant(orderId, userId, role);
+    return this.prisma.orderMessage.findMany({
+      where: { orderId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        senderId: true,
+        senderRole: true,
+        text: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  async postOrderMessage(
+    orderId: string,
+    userId: string,
+    role: UserRole,
+    dto: { text: string },
+  ) {
+    await this.assertOrderParticipant(orderId, userId, role);
+    const senderRole =
+      role === UserRole.CLIENT
+        ? 'CLIENT'
+        : role === UserRole.COOK
+          ? 'COOK'
+          : role === UserRole.RIDER
+            ? 'RIDER'
+            : 'ADMIN';
+
+    const message = await this.prisma.orderMessage.create({
+      data: {
+        orderId,
+        senderId: userId,
+        senderRole,
+        text: dto.text,
+      },
+      select: {
+        id: true,
+        senderId: true,
+        senderRole: true,
+        text: true,
+        createdAt: true,
+      },
+    });
+
+    // Dispatch socket vers la room order-{id}. Tous les participants peuvent
+    // rejoindre via `order:subscribe { orderId }`.
+    this.eventsService.emitToOrderRoom(orderId, 'message:new', {
+      ...message,
+      orderId,
+    });
+    return message;
+  }
 }

@@ -20,6 +20,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { SubmitRatingDto } from './dto/submit-rating.dto';
+import { SendOrderMessageDto } from '../cooks/dto/send-order-message.dto';
 
 interface AuthUser {
   id: string;
@@ -121,6 +122,29 @@ export class OrdersController {
     @Body() dto: SubmitRatingDto,
   ) {
     return this.ordersService.submitRating(id, user.id, dto);
+  }
+
+  /**
+   * Chat sur une commande — accessible aux 3 rôles (client, cook, rider).
+   * GET récupère l'historique chronologique. POST persiste + émet socket
+   * `message:new` sur la room `order-{orderId}` (les 3 participants y sont).
+   */
+  @Get(':id/messages')
+  listMessages(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.ordersService.listOrderMessages(id, user.id, user.role);
+  }
+
+  @Post(':id/messages')
+  @HttpCode(HttpStatus.CREATED)
+  postMessage(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SendOrderMessageDto,
+  ) {
+    return this.ordersService.postOrderMessage(id, user.id, user.role, dto);
   }
 }
 
