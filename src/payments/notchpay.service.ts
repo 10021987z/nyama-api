@@ -81,9 +81,34 @@ export class NotchPayService {
         (data as any)?.authorizationUrl ??
         tx?.authorization_url ??
         undefined;
+      const initRef = tx?.reference ?? reference;
+
+      // Direct charge — déclenche le USSD push immédiatement sur le téléphone
+      // du client. Sans cet appel, NotchPay attend que le client ouvre
+      // l'authorization_url et saisisse son numéro à la main dans la WebView.
+      if (channel && params.phone) {
+        try {
+          const { data: chargeData } = await this.client.post(
+            `/payments/${encodeURIComponent(initRef)}`,
+            {
+              channel,
+              data: { phone: params.phone },
+            },
+          );
+          this.logger.log(
+            `NotchPay direct charge OK ref=${initRef} channel=${channel}: ${JSON.stringify(chargeData).slice(0, 300)}`,
+          );
+        } catch (chargeErr: any) {
+          const chargeDetail =
+            chargeErr?.response?.data ?? chargeErr?.message;
+          this.logger.warn(
+            `NotchPay direct charge failed ref=${initRef}: ${JSON.stringify(chargeDetail)} — fallback URL toujours utilisable`,
+          );
+        }
+      }
 
       return {
-        reference: tx?.reference ?? reference,
+        reference: initRef,
         transactionRef: tx?.trxref ?? tx?.transaction_ref ?? undefined,
         paymentUrl,
         status: tx?.status ?? 'pending',
@@ -95,7 +120,7 @@ export class NotchPayService {
         `NotchPay initiate failed ref=${reference}: ${JSON.stringify(detail)}`,
       );
       throw new InternalServerErrorException(
-        'Échec de l\'initiation du paiement NotchPay',
+        "Échec de l'initiation du paiement NotchPay",
       );
     }
   }
