@@ -12,6 +12,9 @@ export class InitiatePaymentDto {
   })
   phone!: string;
 
-  @IsIn(['mtn', 'orange', 'cash'])
-  provider!: 'mtn' | 'orange' | 'cash';
+  @IsIn(['mtn', 'orange'], {
+    message:
+      "Méthode de paiement invalide : seuls 'mtn' et 'orange' sont acceptés (CASH retiré)",
+  })
+  provider!: 'mtn' | 'orange';
 }

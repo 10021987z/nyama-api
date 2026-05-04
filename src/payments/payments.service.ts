@@ -21,7 +21,6 @@ export type NotchPayWebhookPayload = NotchPayWebhookDto;
 const PROVIDER_TO_METHOD: Record<string, PaymentMethod> = {
   mtn: PaymentMethod.MTN_MOMO,
   orange: PaymentMethod.ORANGE_MONEY,
-  cash: PaymentMethod.CASH,
 };
 
 // Re-poll NotchPay if a payment stays pending for longer than this (ms)
@@ -39,6 +38,13 @@ export class PaymentsService {
   ) {}
 
   async initiate(clientId: string, dto: InitiatePaymentDto) {
+    const method = PROVIDER_TO_METHOD[dto.provider];
+    if (!method) {
+      throw new BadRequestException(
+        "Méthode de paiement non supportée. Le paiement en espèces n'est pas accepté.",
+      );
+    }
+
     const order = await this.prisma.order.findUnique({
       where: { id: dto.orderId },
       include: {
@@ -56,7 +62,6 @@ export class PaymentsService {
 
     const amountXaf =
       order.payment?.amountXaf ?? order.totalXaf + order.deliveryFeeXaf;
-    const method = PROVIDER_TO_METHOD[dto.provider];
 
     const initResult = await this.notchPay.initiatePayment({
       amountXaf,
@@ -253,7 +258,9 @@ export class PaymentsService {
   }
 
   verifySignature(rawBody: string, signature?: string) {
-    const secret = this.config.get<string>('NOTCHPAY_HASH');
+    const secret =
+      this.config.get<string>('NOTCHPAY_WEBHOOK_SECRET') ??
+      this.config.get<string>('NOTCHPAY_HASH');
     if (!secret) return; // dev / sandbox: no hash set
     if (!signature) throw new UnauthorizedException('Signature manquante');
     const expected = crypto

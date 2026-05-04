@@ -5,7 +5,7 @@ import axios, { AxiosInstance } from 'axios';
 export interface NotchPayInitiateParams {
   amountXaf: number;
   phone: string;
-  provider: 'mtn' | 'orange' | 'cash';
+  provider: 'mtn' | 'orange';
   orderId: string;
   customerName?: string;
   customerEmail?: string;

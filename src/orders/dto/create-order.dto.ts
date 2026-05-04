@@ -1,7 +1,7 @@
 import {
   IsString,
   IsNumber,
-  IsEnum,
+  IsIn,
   IsOptional,
   IsArray,
   ValidateNested,
@@ -10,6 +10,11 @@ import {
 import { Type } from 'class-transformer';
 import { PaymentMethod } from '@prisma/client';
 import { CreateOrderItemDto } from './create-order-item.dto';
+
+const ACCEPTED_PAYMENT_METHODS = [
+  PaymentMethod.MTN_MOMO,
+  PaymentMethod.ORANGE_MONEY,
+] as const;
 
 export class CreateOrderDto {
   @IsString()
@@ -34,8 +39,11 @@ export class CreateOrderDto {
   @IsString()
   landmark?: string;
 
-  @IsEnum(PaymentMethod)
-  paymentMethod: PaymentMethod;
+  @IsIn(ACCEPTED_PAYMENT_METHODS, {
+    message:
+      "Méthode de paiement invalide : seuls MTN_MOMO et ORANGE_MONEY sont acceptés",
+  })
+  paymentMethod: (typeof ACCEPTED_PAYMENT_METHODS)[number];
 
   @IsOptional()
   @IsString()

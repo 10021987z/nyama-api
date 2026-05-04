@@ -27,6 +27,11 @@ export class PaymentsController {
     private readonly paymentsService: PaymentsService,
   ) {}
 
+  @Get('methods')
+  getAcceptedMethods() {
+    return { methods: ['MTN_MOMO', 'ORANGE_MONEY'] };
+  }
+
   @Post('initiate')
   @UseGuards(JwtAuthGuard)
   async initiate(
