@@ -110,7 +110,21 @@ export class PaymentsService {
       reference: payment.providerRef,
       paymentId: payment.id,
       status: payment.status,
+      // Instruction USSD côté client. Pour MTN Cameroun, NotchPay renvoie
+      // "Confirm your transaction by dialing *126#" — l'app doit afficher
+      // cette consigne au lieu d'ouvrir la WebView.
+      chargeMessage: initResult.chargeMessage,
+      chargeAction: initResult.chargeAction,
+      ussdCode: this.extractUssdCode(initResult.chargeMessage),
+      provider: dto.provider,
     };
+  }
+
+  /** Extrait un code USSD type *126# / #144# du message NotchPay. */
+  private extractUssdCode(msg?: string): string | undefined {
+    if (!msg) return undefined;
+    const m = msg.match(/(\*\d+#|#\d+#)/);
+    return m?.[1];
   }
 
   async getById(paymentId: string, userId: string) {

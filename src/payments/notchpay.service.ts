@@ -18,6 +18,11 @@ export interface NotchPayInitiateResult {
   paymentUrl?: string;
   status: string;
   raw: unknown;
+  // Message renvoyé par NotchPay au moment du direct charge.
+  // Pour MTN Cameroun par ex : "Confirm your transaction by dialing *126#".
+  // Pour Orange : généralement undefined (push USSD automatique).
+  chargeMessage?: string;
+  chargeAction?: string;
 }
 
 const CHANNEL_BY_PROVIDER: Record<string, string> = {
@@ -86,6 +91,8 @@ export class NotchPayService {
       // Direct charge — déclenche le USSD push immédiatement sur le téléphone
       // du client. Sans cet appel, NotchPay attend que le client ouvre
       // l'authorization_url et saisisse son numéro à la main dans la WebView.
+      let chargeMessage: string | undefined;
+      let chargeAction: string | undefined;
       if (channel && params.phone) {
         try {
           const { data: chargeData } = await this.client.post(
@@ -98,6 +105,8 @@ export class NotchPayService {
           this.logger.log(
             `NotchPay direct charge OK ref=${initRef} channel=${channel}: ${JSON.stringify(chargeData).slice(0, 300)}`,
           );
+          chargeMessage = (chargeData as any)?.message ?? undefined;
+          chargeAction = (chargeData as any)?.action ?? undefined;
         } catch (chargeErr: any) {
           const chargeDetail =
             chargeErr?.response?.data ?? chargeErr?.message;
@@ -113,6 +122,8 @@ export class NotchPayService {
         paymentUrl,
         status: tx?.status ?? 'pending',
         raw: data,
+        chargeMessage,
+        chargeAction,
       };
     } catch (err: any) {
       const detail = err?.response?.data ?? err?.message;
