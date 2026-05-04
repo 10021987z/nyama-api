@@ -44,7 +44,7 @@ export class NotchPayService {
 
     this.client = axios.create({
       baseURL: 'https://api.notchpay.co',
-      timeout: 15000,
+      timeout: 60000,
       headers: {
         Authorization: this.publicKey,
         'Content-Type': 'application/json',
